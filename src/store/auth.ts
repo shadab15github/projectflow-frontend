@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type { LoginPayload, SignupPayload, User } from '@/types';
 import * as authService from '@/services/auth.service';
+import { useTenantStore } from '@/store/tenant';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
@@ -17,6 +18,7 @@ export const useAuthStore = defineStore('auth', () => {
   function clearSession(): void {
     user.value = null;
     token.value = null;
+    useTenantStore().clearTenant();
   }
 
   async function login(payload: LoginPayload): Promise<void> {

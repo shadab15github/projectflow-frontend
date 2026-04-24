@@ -1,4 +1,23 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useAuthStore } from '@/store/auth';
+import { useTenantStore } from '@/store/tenant';
+
+const auth = useAuthStore();
+const tenantStore = useTenantStore();
+const { tenant, loading } = storeToRefs(tenantStore);
+
+onMounted(async () => {
+  if (auth.isAuthenticated && !tenant.value) {
+    try {
+      await tenantStore.fetchTenant();
+    } catch {
+      // api interceptor handles 401; other errors are non-fatal for layout
+    }
+  }
+});
+</script>
 
 <template>
   <div class="min-h-screen flex">
@@ -9,7 +28,14 @@
       </nav>
     </aside>
     <div class="flex-1 flex flex-col">
-      <header class="h-14 border-b flex items-center px-4"></header>
+      <header class="h-14 border-b flex items-center justify-between px-4">
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-muted-foreground">Workspace:</span>
+          <span class="text-sm font-medium">
+            {{ tenant ? tenant.name : loading ? 'Loading…' : '—' }}
+          </span>
+        </div>
+      </header>
       <main class="flex-1 p-6">
         <RouterView />
       </main>
