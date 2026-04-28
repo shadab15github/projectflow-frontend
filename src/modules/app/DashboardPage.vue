@@ -1,7 +1,122 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { storeToRefs } from 'pinia';
+import { useAuthStore } from '@/store/auth';
+import { useProjectStore } from '@/store/project';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import CreateProjectDialog from './CreateProjectDialog.vue';
+
+const auth = useAuthStore();
+const projectStore = useProjectStore();
+const router = useRouter();
+
+const { projects, loading, error } = storeToRefs(projectStore);
+const dialogOpen = ref(false);
+
+const canCreate = computed<boolean>(() => {
+  const role = auth.user?.role;
+  return role === 'manager' || role === 'admin' || role === 'super_admin';
+});
+
+onMounted(async () => {
+  try {
+    await projectStore.fetchProjects();
+  } catch {
+    // store sets error.value; api interceptor handles 401
+  }
+});
+
+function openProject(id: string): void {
+  router.push({ name: 'project-detail', params: { id } });
+}
+
+function onCreated(id: string): void {
+  openProject(id);
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString();
+}
+</script>
 
 <template>
-  <section>
-    <h1 class="text-2xl font-semibold">Dashboard</h1>
+  <section class="flex flex-col gap-6">
+    <header class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold">Dashboard</h1>
+        <p class="text-sm text-muted-foreground">
+          Projects you're a member of.
+        </p>
+      </div>
+      <Button v-if="canCreate" @click="dialogOpen = true">
+        Create project
+      </Button>
+    </header>
+
+    <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
+
+    <div
+      v-if="loading && projects.length === 0"
+      class="text-sm text-muted-foreground"
+    >
+      Loading projects…
+    </div>
+
+    <div
+      v-else-if="projects.length === 0"
+      class="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center"
+    >
+      <h2 class="text-lg font-medium">No projects yet</h2>
+      <p class="max-w-sm text-sm text-muted-foreground">
+        {{
+          canCreate
+            ? 'Create your first project to start organizing tasks with your team.'
+            : 'Ask a manager or admin to add you to a project.'
+        }}
+      </p>
+      <Button v-if="canCreate" @click="dialogOpen = true">
+        Create project
+      </Button>
+    </div>
+
+    <div
+      v-else
+      class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+    >
+      <Card
+        v-for="project in projects"
+        :key="project._id"
+        class="cursor-pointer transition-colors hover:bg-accent/40"
+        role="button"
+        tabindex="0"
+        @click="openProject(project._id)"
+        @keydown.enter="openProject(project._id)"
+      >
+        <CardHeader>
+          <CardTitle>{{ project.name }}</CardTitle>
+          <CardDescription>
+            {{
+              project.description ? project.description : 'No description yet.'
+            }}
+          </CardDescription>
+        </CardHeader>
+        <CardContent
+          class="flex items-center justify-between text-xs text-muted-foreground"
+        >
+          <span>{{ project.members.length }} member{{ project.members.length === 1 ? '' : 's' }}</span>
+          <span>Updated {{ formatDate(project.updatedAt) }}</span>
+        </CardContent>
+      </Card>
+    </div>
+
+    <CreateProjectDialog v-model:open="dialogOpen" @created="onCreated" />
   </section>
 </template>

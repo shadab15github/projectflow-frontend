@@ -23,14 +23,31 @@ export interface Tenant {
   createdAt: string;
 }
 
+export type ProjectStatus = 'active' | 'archived';
+
 export interface Project {
   _id: string;
   tenantId: string;
   name: string;
   description: string;
-  status: string;
+  status: ProjectStatus;
   members: string[];
+  createdBy: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProjectPayload {
+  name: string;
+  description?: string;
+  members?: string[];
+}
+
+export interface UpdateProjectPayload {
+  name?: string;
+  description?: string;
+  status?: ProjectStatus;
+  members?: string[];
 }
 
 export interface Task {
