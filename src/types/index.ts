@@ -58,11 +58,36 @@ export interface Task {
   description: string;
   state: TaskState;
   priority: TaskPriority;
-  assigneeId: string;
+  assigneeId?: string | null;
   labels: string[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreateTaskPayload {
+  projectId: string;
+  title: string;
+  description?: string;
+  state?: TaskState;
+  priority?: TaskPriority;
+  assigneeId?: string | null;
+  labels?: string[];
+}
+
+export interface UpdateTaskPayload {
+  title?: string;
+  description?: string;
+  state?: TaskState;
+  priority?: TaskPriority;
+  assigneeId?: string | null;
+  labels?: string[];
+}
+
+export interface TaskListQuery {
+  projectId: string;
+  state?: TaskState;
+  assigneeId?: string;
 }
 
 export interface LoginPayload {

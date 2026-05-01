@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '@/store/auth';
 import { useProjectStore } from '@/store/project';
-import type { Project } from '@/types';
+import { useTaskStore } from '@/store/task';
+import type { Project, Task, TaskPriority, TaskState } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,15 +17,48 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import CreateTaskDialog from './CreateTaskDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const projectStore = useProjectStore();
+const taskStore = useTaskStore();
 
 const project = ref<Project | null>(null);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
+
+const tasksLoading = ref(false);
+const tasksError = ref<string | null>(null);
+const createTaskOpen = ref(false);
+const taskFilter = ref<TaskState | 'ALL'>('ALL');
+
+const STATE_OPTIONS: { value: TaskState | 'ALL'; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'TODO', label: 'To do' },
+  { value: 'IN_PROGRESS', label: 'In progress' },
+  { value: 'IN_REVIEW', label: 'In review' },
+  { value: 'DONE', label: 'Done' },
+  { value: 'BLOCKED', label: 'Blocked' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+];
+
+const STATE_LABELS: Record<TaskState, string> = {
+  TODO: 'To do',
+  IN_PROGRESS: 'In progress',
+  IN_REVIEW: 'In review',
+  DONE: 'Done',
+  BLOCKED: 'Blocked',
+  CANCELLED: 'Cancelled',
+};
+
+const PRIORITY_CLASSES: Record<TaskPriority, string> = {
+  low: 'bg-muted text-muted-foreground',
+  medium: 'bg-blue-100 text-blue-800',
+  high: 'bg-amber-100 text-amber-800',
+  urgent: 'bg-red-100 text-red-800',
+};
 
 const editing = ref(false);
 const editName = ref('');
@@ -39,6 +73,8 @@ const canEdit = computed<boolean>(() => {
   return role === 'manager' || role === 'admin' || role === 'super_admin';
 });
 
+const canCreateTask = computed<boolean>(() => canEdit.value);
+
 const canDelete = computed<boolean>(() => {
   const role = auth.user?.role;
   return role === 'admin' || role === 'super_admin';
@@ -46,11 +82,17 @@ const canDelete = computed<boolean>(() => {
 
 const projectId = computed<string>(() => route.params.id as string);
 
+const visibleTasks = computed<Task[]>(() => {
+  if (taskFilter.value === 'ALL') return taskStore.tasks;
+  return taskStore.tasks.filter((t) => t.state === taskFilter.value);
+});
+
 async function load(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
     project.value = await projectStore.fetchProject(projectId.value);
+    await loadTasks();
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.status === 404) {
       loadError.value = 'Project not found.';
@@ -60,6 +102,32 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+async function loadTasks(): Promise<void> {
+  tasksLoading.value = true;
+  tasksError.value = null;
+  try {
+    await taskStore.fetchTasks({ projectId: projectId.value });
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      tasksError.value =
+        (err.response?.data as { message?: string } | undefined)?.message ??
+        'Failed to load tasks.';
+    } else {
+      tasksError.value = 'Failed to load tasks.';
+    }
+  } finally {
+    tasksLoading.value = false;
+  }
+}
+
+function onTaskCreated(): void {
+  void loadTasks();
+}
+
+function openTask(taskId: string): void {
+  void router.push({ name: 'task-detail', params: { id: taskId } });
 }
 
 onMounted(load);
@@ -260,16 +328,114 @@ function formatDate(iso: string): string {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Tasks</CardTitle>
-          <CardDescription>Coming in the next phase.</CardDescription>
+        <CardHeader class="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle>Tasks</CardTitle>
+            <CardDescription>
+              {{ visibleTasks.length }} of {{ taskStore.tasks.length }} task{{
+                taskStore.tasks.length === 1 ? '' : 's'
+              }}.
+            </CardDescription>
+          </div>
+          <Button
+            v-if="canCreateTask"
+            type="button"
+            @click="createTaskOpen = true"
+          >
+            + New task
+          </Button>
         </CardHeader>
-        <CardContent>
-          <p class="text-sm text-muted-foreground">
-            Task management lands in Phase 3.
+        <CardContent class="flex flex-col gap-4">
+          <div class="flex flex-wrap gap-2">
+            <Button
+              v-for="opt in STATE_OPTIONS"
+              :key="opt.value"
+              type="button"
+              size="sm"
+              :variant="taskFilter === opt.value ? 'default' : 'outline'"
+              @click="taskFilter = opt.value"
+            >
+              {{ opt.label }}
+            </Button>
+          </div>
+
+          <p v-if="tasksError" class="text-sm text-destructive">
+            {{ tasksError }}
           </p>
+
+          <p
+            v-if="tasksLoading && taskStore.tasks.length === 0"
+            class="text-sm text-muted-foreground"
+          >
+            Loading tasks…
+          </p>
+
+          <p
+            v-else-if="taskStore.tasks.length === 0"
+            class="text-sm text-muted-foreground"
+          >
+            No tasks yet. {{ canCreateTask ? 'Create the first one.' : '' }}
+          </p>
+
+          <p
+            v-else-if="visibleTasks.length === 0"
+            class="text-sm text-muted-foreground"
+          >
+            No tasks match the selected filter.
+          </p>
+
+          <ul v-else class="flex flex-col gap-2">
+            <li
+              v-for="task in visibleTasks"
+              :key="task._id"
+              class="flex cursor-pointer items-start justify-between gap-4 rounded-md border bg-card p-3 hover:bg-accent/40"
+              @click="openTask(task._id)"
+            >
+              <div class="flex flex-col gap-1">
+                <p class="text-sm font-medium">{{ task.title }}</p>
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                  <span
+                    class="rounded bg-muted px-2 py-0.5 text-muted-foreground"
+                  >
+                    {{ STATE_LABELS[task.state] }}
+                  </span>
+                  <span
+                    :class="[
+                      'rounded px-2 py-0.5 capitalize',
+                      PRIORITY_CLASSES[task.priority],
+                    ]"
+                  >
+                    {{ task.priority }}
+                  </span>
+                  <span
+                    v-if="task.assigneeId"
+                    class="font-mono text-muted-foreground"
+                  >
+                    @{{ task.assigneeId.slice(-6) }}
+                  </span>
+                  <span
+                    v-for="label in task.labels"
+                    :key="label"
+                    class="rounded border px-2 py-0.5 text-muted-foreground"
+                  >
+                    {{ label }}
+                  </span>
+                </div>
+              </div>
+              <span class="text-xs text-muted-foreground whitespace-nowrap">
+                {{ formatDate(task.updatedAt) }}
+              </span>
+            </li>
+          </ul>
         </CardContent>
       </Card>
+
+      <CreateTaskDialog
+        v-model:open="createTaskOpen"
+        :project-id="projectId"
+        :project-members="project.members"
+        @created="onTaskCreated"
+      />
     </template>
   </section>
 </template>
