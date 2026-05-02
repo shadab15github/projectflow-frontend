@@ -1,15 +1,85 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '@/store/auth';
 import { useTenantStore } from '@/store/tenant';
 import { useProjectStore } from '@/store/project';
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsUpDown,
+  Folder,
+  LayoutDashboard,
+  LogOut,
+  Plus,
+  Settings,
+  Sparkles,
+  User as UserIcon,
+} from 'lucide-vue-next';
 
 const auth = useAuthStore();
 const tenantStore = useTenantStore();
 const projectStore = useProjectStore();
 const { tenant, loading: tenantLoading } = storeToRefs(tenantStore);
-const { recentProjects } = storeToRefs(projectStore);
+const { projects } = storeToRefs(projectStore);
+
+const SIDEBAR_SIZE_KEY = 'projectflow:sidebar-size';
+const PROJECTS_EXPANDED_KEY = 'projectflow:projects-expanded';
+const DEFAULT_SIDEBAR_SIZE = 18;
+
+const initialSidebarSize = ref<number>(DEFAULT_SIDEBAR_SIZE);
+const stored = typeof window !== 'undefined' ? window.localStorage.getItem(SIDEBAR_SIZE_KEY) : null;
+if (stored) {
+  const parsed = Number(stored);
+  if (!Number.isNaN(parsed) && parsed >= 14 && parsed <= 30) {
+    initialSidebarSize.value = parsed;
+  }
+}
+
+const projectsExpanded = ref<boolean>(true);
+const storedExpanded = typeof window !== 'undefined' ? window.localStorage.getItem(PROJECTS_EXPANDED_KEY) : null;
+if (storedExpanded !== null) projectsExpanded.value = storedExpanded === '1';
+
+function toggleProjects(): void {
+  projectsExpanded.value = !projectsExpanded.value;
+  window.localStorage.setItem(PROJECTS_EXPANDED_KEY, projectsExpanded.value ? '1' : '0');
+}
+
+function persistSidebarSize(sizes: number[]): void {
+  const [sidebar] = sizes;
+  if (typeof sidebar === 'number') {
+    window.localStorage.setItem(SIDEBAR_SIZE_KEY, String(sidebar));
+  }
+}
+
+function initials(value: string | undefined | null, fallback: string): string {
+  const name = (value ?? '').trim();
+  if (!name) return fallback;
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+const userInitials = computed<string>(() => initials(auth.user?.name, 'U'));
+const tenantInitials = computed<string>(() => initials(tenant.value?.name, 'W'));
 
 onMounted(async () => {
   if (!auth.isAuthenticated) return;
@@ -34,61 +104,211 @@ function logout(): void {
 </script>
 
 <template>
-  <div class="min-h-screen flex">
-    <aside class="w-60 border-r bg-background p-4 flex flex-col gap-6">
-      <div class="font-semibold">ProjectFlow</div>
-      <nav class="flex flex-col gap-1 text-sm">
-        <RouterLink
-          to="/app"
-          class="px-2 py-1.5 rounded hover:bg-accent"
-          active-class="bg-accent font-medium"
-        >
-          Projects
-        </RouterLink>
-      </nav>
+  <ResizablePanelGroup
+    direction="horizontal"
+    class="min-h-screen"
+    @layout="persistSidebarSize"
+  >
+    <ResizablePanel
+      :default-size="initialSidebarSize"
+      :min-size="14"
+      :max-size="30"
+      class="bg-background"
+    >
+      <aside class="h-full flex flex-col border-r">
+        <!-- Workspace switcher -->
+        <div class="p-3 border-b">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              class="w-full flex items-center gap-2 rounded-md p-2 hover:bg-accent text-left"
+            >
+              <Avatar class="size-8 rounded-md">
+                <AvatarFallback
+                  class="rounded-md bg-primary text-primary-foreground text-xs font-semibold"
+                >
+                  {{ tenantInitials }}
+                </AvatarFallback>
+              </Avatar>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">
+                  {{ tenant ? tenant.name : tenantLoading ? 'Loading…' : 'Workspace' }}
+                </div>
+                <div class="text-xs text-muted-foreground truncate capitalize">
+                  {{ tenant?.plan ?? 'free' }} plan
+                </div>
+              </div>
+              <ChevronsUpDown class="size-4 text-muted-foreground shrink-0" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              class="w-(--reka-dropdown-menu-trigger-width) min-w-56"
+              align="start"
+              :side-offset="6"
+            >
+              <DropdownMenuLabel class="text-muted-foreground text-xs">
+                Workspaces
+              </DropdownMenuLabel>
+              <DropdownMenuItem v-if="tenant" class="gap-2">
+                <Avatar class="size-6 rounded-sm">
+                  <AvatarFallback
+                    class="rounded-sm text-[10px] bg-primary text-primary-foreground"
+                  >
+                    {{ tenantInitials }}
+                  </AvatarFallback>
+                </Avatar>
+                <span class="truncate">{{ tenant.name }}</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled class="gap-2">
+                <Plus class="size-4" />
+                <span>Create workspace</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
-      <div v-if="recentProjects.length > 0" class="flex flex-col gap-2">
-        <p class="px-2 text-xs uppercase tracking-wide text-muted-foreground">
-          Recent
-        </p>
-        <nav class="flex flex-col gap-0.5 text-sm">
+        <!-- Navigation -->
+        <nav class="flex-1 overflow-y-auto p-3 flex flex-col gap-0.5 text-sm">
           <RouterLink
-            v-for="project in recentProjects"
-            :key="project._id"
-            :to="{ name: 'project-detail', params: { id: project._id } }"
-            class="px-2 py-1 rounded truncate hover:bg-accent"
+            to="/app"
+            class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent"
+            exact-active-class="bg-accent font-medium"
+          >
+            <LayoutDashboard class="size-4" />
+            <span>Dashboard</span>
+          </RouterLink>
+
+          <RouterLink
+            to="/app/for-you"
+            class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent"
             active-class="bg-accent font-medium"
           >
-            {{ project.name }}
+            <Sparkles class="size-4" />
+            <span>For You</span>
           </RouterLink>
-        </nav>
-      </div>
-    </aside>
 
-    <div class="flex-1 flex flex-col">
-      <header class="h-14 border-b flex items-center justify-between px-4">
-        <div class="flex items-center gap-2">
-          <span class="text-sm text-muted-foreground">Workspace:</span>
-          <span class="text-sm font-medium">
-            {{ tenant ? tenant.name : tenantLoading ? 'Loading…' : '—' }}
-          </span>
-        </div>
-        <div class="flex items-center gap-3">
-          <span v-if="auth.user" class="text-sm text-muted-foreground">
-            {{ auth.user.name }}
-          </span>
           <button
             type="button"
-            class="text-sm underline underline-offset-4 hover:text-foreground"
-            @click="logout"
+            class="mt-1 flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent text-left"
+            :aria-expanded="projectsExpanded"
+            @click="toggleProjects"
           >
-            Sign out
+            <component
+              :is="projectsExpanded ? ChevronDown : ChevronRight"
+              class="size-4 text-muted-foreground"
+            />
+            <Folder class="size-4" />
+            <span class="flex-1">Projects</span>
+            <span class="text-xs text-muted-foreground">
+              {{ projects.length }}
+            </span>
           </button>
+
+          <div
+            v-if="projectsExpanded"
+            class="ml-4 flex flex-col gap-0.5 pl-3 border-l"
+          >
+            <RouterLink
+              v-for="project in projects"
+              :key="project._id"
+              :to="{ name: 'project-detail', params: { id: project._id } }"
+              class="px-2 py-1 rounded text-sm hover:bg-accent truncate"
+              active-class="bg-accent font-medium"
+            >
+              {{ project.name }}
+            </RouterLink>
+            <p
+              v-if="projects.length === 0"
+              class="px-2 py-1 text-xs text-muted-foreground"
+            >
+              No projects yet
+            </p>
+          </div>
+        </nav>
+
+        <!-- Profile selector -->
+        <div class="p-3 border-t">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              class="w-full flex items-center gap-2 rounded-md p-2 hover:bg-accent text-left"
+            >
+              <Avatar class="size-8">
+                <AvatarImage
+                  v-if="auth.user?.avatar"
+                  :src="auth.user.avatar"
+                  :alt="auth.user.name"
+                />
+                <AvatarFallback class="text-xs">
+                  {{ userInitials }}
+                </AvatarFallback>
+              </Avatar>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">
+                  {{ auth.user?.name ?? 'User' }}
+                </div>
+                <div class="text-xs text-muted-foreground truncate">
+                  {{ auth.user?.email ?? '' }}
+                </div>
+              </div>
+              <ChevronsUpDown class="size-4 text-muted-foreground shrink-0" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              class="w-(--reka-dropdown-menu-trigger-width) min-w-56"
+              align="end"
+              side="top"
+              :side-offset="6"
+            >
+              <DropdownMenuLabel class="font-normal">
+                <div class="flex items-center gap-2">
+                  <Avatar class="size-8">
+                    <AvatarImage
+                      v-if="auth.user?.avatar"
+                      :src="auth.user.avatar"
+                      :alt="auth.user.name"
+                    />
+                    <AvatarFallback class="text-xs">
+                      {{ userInitials }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium truncate">
+                      {{ auth.user?.name ?? 'User' }}
+                    </div>
+                    <div class="text-xs text-muted-foreground truncate">
+                      {{ auth.user?.email ?? '' }}
+                    </div>
+                  </div>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem class="gap-2">
+                <UserIcon class="size-4" />
+                <span>Profile</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem class="gap-2">
+                <Settings class="size-4" />
+                <span>Settings</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                class="gap-2"
+                @select="logout"
+              >
+                <LogOut class="size-4" />
+                <span>Sign out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      </header>
-      <main class="flex-1 p-6">
+      </aside>
+    </ResizablePanel>
+
+    <ResizableHandle with-handle />
+
+    <ResizablePanel :default-size="100 - initialSidebarSize">
+      <main class="h-full overflow-y-auto p-6">
         <RouterView />
       </main>
-    </div>
-  </div>
+    </ResizablePanel>
+  </ResizablePanelGroup>
 </template>
