@@ -14,9 +14,11 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { VsxIcon } from "vue-iconsax";
 import AppLogo from "@/components/layout/AppLogo.vue";
+import { useTheme } from "@/composables/useTheme";
 
 const auth = useAuthStore();
 const projectStore = useProjectStore();
+const { mode: themeMode, isDark, setTheme } = useTheme();
 
 function initials(value: string | undefined | null, fallback: string): string {
   const name = (value ?? "").trim();
@@ -67,6 +69,57 @@ function logout(): void {
       <Button variant="ghost" size="icon-sm" aria-label="Settings">
         <VsxIcon iconName="Setting2" class="size-4" />
       </Button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          class="inline-flex items-center justify-center size-8 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          aria-label="Toggle theme"
+        >
+          <VsxIcon
+            :iconName="isDark ? 'Moon' : 'Sun1'"
+            class="size-4"
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" :side-offset="6" class="min-w-36">
+          <DropdownMenuItem
+            class="gap-2"
+            :data-active="themeMode === 'light' ? '' : undefined"
+            @select="setTheme('light')"
+          >
+            <VsxIcon iconName="Sun1" class="size-4" />
+            <span class="flex-1">Light</span>
+            <VsxIcon
+              v-if="themeMode === 'light'"
+              iconName="TickCircle"
+              class="size-4 text-primary"
+            />
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            class="gap-2"
+            @select="setTheme('dark')"
+          >
+            <VsxIcon iconName="Moon" class="size-4" />
+            <span class="flex-1">Dark</span>
+            <VsxIcon
+              v-if="themeMode === 'dark'"
+              iconName="TickCircle"
+              class="size-4 text-primary"
+            />
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            class="gap-2"
+            @select="setTheme('system')"
+          >
+            <VsxIcon iconName="Monitor" class="size-4" />
+            <span class="flex-1">System</span>
+            <VsxIcon
+              v-if="themeMode === 'system'"
+              iconName="TickCircle"
+              class="size-4 text-primary"
+            />
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <DropdownMenu>
         <DropdownMenuTrigger
