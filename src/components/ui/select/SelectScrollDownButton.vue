@@ -5,7 +5,7 @@ import {
   type SelectScrollDownButtonProps,
   useForwardProps,
 } from 'reka-ui'
-import { ChevronDown } from 'lucide-vue-next'
+import { VsxIcon } from 'vue-iconsax'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<SelectScrollDownButtonProps & { class?: HTMLAttributes['class'] }>()
@@ -18,6 +18,6 @@ const forwarded = useForwardProps(props)
     data-slot="select-scroll-down-button"
     :class="cn('flex cursor-default items-center justify-center py-1', props.class)"
   >
-    <ChevronDown class="size-4" />
+    <VsxIcon iconName="ArrowDown2" class="size-4" />
   </SelectScrollDownButton>
 </template>

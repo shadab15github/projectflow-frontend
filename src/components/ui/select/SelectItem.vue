@@ -7,7 +7,7 @@ import {
   SelectItemText,
   useForwardProps,
 } from 'reka-ui'
-import { Check } from 'lucide-vue-next'
+import { VsxIcon } from 'vue-iconsax'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<SelectItemProps & { class?: HTMLAttributes['class'] }>()
@@ -27,7 +27,7 @@ const forwarded = useForwardProps(props)
   >
     <span class="absolute right-2 flex size-3.5 items-center justify-center">
       <SelectItemIndicator>
-        <Check class="size-4" />
+        <VsxIcon iconName="TickCircle" class="size-4" />
       </SelectItemIndicator>
     </span>
     <SelectItemText>

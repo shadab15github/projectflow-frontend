@@ -18,18 +18,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-  ChevronDown,
-  ChevronRight,
-  ChevronsUpDown,
-  Folder,
-  LayoutDashboard,
-  LogOut,
-  Plus,
-  Settings,
-  Sparkles,
-  User as UserIcon,
-} from 'lucide-vue-next';
+import { VsxIcon } from 'vue-iconsax';
+import ChevronsUpDownIcon from '@/components/icons/ChevronsUpDownIcon.vue';
 
 const auth = useAuthStore();
 const tenantStore = useTenantStore();
@@ -137,7 +127,7 @@ function logout(): void {
                   {{ tenant?.plan ?? 'free' }} plan
                 </div>
               </div>
-              <ChevronsUpDown class="size-4 text-muted-foreground shrink-0" />
+              <ChevronsUpDownIcon class="size-4 text-muted-foreground shrink-0" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               class="w-(--reka-dropdown-menu-trigger-width) min-w-56"
@@ -159,7 +149,7 @@ function logout(): void {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled class="gap-2">
-                <Plus class="size-4" />
+                <VsxIcon iconName="Add" class="size-4" />
                 <span>Create workspace</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -173,7 +163,7 @@ function logout(): void {
             class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent"
             exact-active-class="bg-accent font-medium"
           >
-            <LayoutDashboard class="size-4" />
+            <VsxIcon iconName="Element3" class="size-4" />
             <span>Dashboard</span>
           </RouterLink>
 
@@ -182,7 +172,7 @@ function logout(): void {
             class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent"
             active-class="bg-accent font-medium"
           >
-            <Sparkles class="size-4" />
+            <VsxIcon iconName="MagicStar" class="size-4" />
             <span>For You</span>
           </RouterLink>
 
@@ -192,11 +182,11 @@ function logout(): void {
             :aria-expanded="projectsExpanded"
             @click="toggleProjects"
           >
-            <component
-              :is="projectsExpanded ? ChevronDown : ChevronRight"
+            <VsxIcon
+              :iconName="projectsExpanded ? 'ArrowDown2' : 'ArrowRight2'"
               class="size-4 text-muted-foreground"
             />
-            <Folder class="size-4" />
+            <VsxIcon iconName="Folder" class="size-4" />
             <span class="flex-1">Projects</span>
             <span class="text-xs text-muted-foreground">
               {{ projects.length }}
@@ -249,7 +239,7 @@ function logout(): void {
                   {{ auth.user?.email ?? '' }}
                 </div>
               </div>
-              <ChevronsUpDown class="size-4 text-muted-foreground shrink-0" />
+              <ChevronsUpDownIcon class="size-4 text-muted-foreground shrink-0" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               class="w-(--reka-dropdown-menu-trigger-width) min-w-56"
@@ -281,11 +271,11 @@ function logout(): void {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem class="gap-2">
-                <UserIcon class="size-4" />
+                <VsxIcon iconName="User" class="size-4" />
                 <span>Profile</span>
               </DropdownMenuItem>
               <DropdownMenuItem class="gap-2">
-                <Settings class="size-4" />
+                <VsxIcon iconName="Setting2" class="size-4" />
                 <span>Settings</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -294,7 +284,7 @@ function logout(): void {
                 class="gap-2"
                 @select="logout"
               >
-                <LogOut class="size-4" />
+                <VsxIcon iconName="Logout" class="size-4" />
                 <span>Sign out</span>
               </DropdownMenuItem>
             </DropdownMenuContent>

@@ -6,7 +6,7 @@ import {
   type SelectTriggerProps,
   useForwardProps,
 } from 'reka-ui'
-import { ChevronDown } from 'lucide-vue-next'
+import { VsxIcon } from 'vue-iconsax'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<SelectTriggerProps & { class?: HTMLAttributes['class'] }>()
@@ -27,7 +27,7 @@ const forwarded = useForwardProps(props)
   >
     <slot />
     <SelectIcon as-child>
-      <ChevronDown class="size-4 opacity-50" />
+      <VsxIcon iconName="ArrowDown2" class="size-4 opacity-50" />
     </SelectIcon>
   </SelectTrigger>
 </template>

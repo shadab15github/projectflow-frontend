@@ -5,7 +5,7 @@ import {
   type SelectScrollUpButtonProps,
   useForwardProps,
 } from 'reka-ui'
-import { ChevronUp } from 'lucide-vue-next'
+import { VsxIcon } from 'vue-iconsax'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<SelectScrollUpButtonProps & { class?: HTMLAttributes['class'] }>()
@@ -18,6 +18,6 @@ const forwarded = useForwardProps(props)
     data-slot="select-scroll-up-button"
     :class="cn('flex cursor-default items-center justify-center py-1', props.class)"
   >
-    <ChevronUp class="size-4" />
+    <VsxIcon iconName="ArrowUp2" class="size-4" />
   </SelectScrollUpButton>
 </template>
