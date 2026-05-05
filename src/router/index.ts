@@ -55,8 +55,58 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'projects/:id',
-        name: 'project-detail',
         component: () => import('@/modules/app/ProjectDetailPage.vue'),
+        children: [
+          {
+            path: '',
+            name: 'project-detail',
+            redirect: (to) => ({
+              name: 'project-summary',
+              params: { id: to.params.id },
+            }),
+          },
+          {
+            path: 'summary',
+            name: 'project-summary',
+            component: () => import('@/modules/app/project/SummaryTab.vue'),
+          },
+          {
+            path: 'list',
+            name: 'project-list',
+            component: () => import('@/modules/app/project/ListTab.vue'),
+          },
+          {
+            path: 'board',
+            name: 'project-board',
+            component: () => import('@/modules/app/project/BoardTab.vue'),
+          },
+          {
+            path: 'code',
+            name: 'project-code',
+            component: () => import('@/modules/app/project/CodeTab.vue'),
+          },
+          {
+            path: 'forms',
+            name: 'project-forms',
+            component: () => import('@/modules/app/project/FormsTab.vue'),
+          },
+          {
+            path: 'timeline',
+            name: 'project-timeline',
+            component: () => import('@/modules/app/project/TimelineTab.vue'),
+          },
+          {
+            path: 'docs',
+            name: 'project-docs',
+            component: () => import('@/modules/app/project/DocsTab.vue'),
+          },
+          {
+            path: 'development',
+            name: 'project-development',
+            component: () =>
+              import('@/modules/app/project/DevelopmentTab.vue'),
+          },
+        ],
       },
       {
         path: 'tasks/:id',
