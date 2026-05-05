@@ -176,7 +176,7 @@ function logout(): void {
         <RouterLink
           v-for="project in projects"
           :key="project._id"
-          :to="{ name: 'project-detail', params: { id: project._id } }"
+          :to="{ name: 'project-detail', params: { slug: project.slug } }"
           class="px-2 py-1 rounded text-sm hover:bg-accent truncate"
           active-class="bg-accent font-medium"
         >

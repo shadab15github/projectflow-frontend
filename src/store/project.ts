@@ -42,11 +42,11 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  async function fetchProject(id: string): Promise<Project> {
+  async function fetchProject(idOrSlug: string): Promise<Project> {
     loading.value = true;
     error.value = null;
     try {
-      const project = await projectService.getProject(id);
+      const project = await projectService.getProject(idOrSlug);
       currentProject.value = project;
       upsert(project);
       return project;

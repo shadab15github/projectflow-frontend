@@ -10,8 +10,10 @@ export async function listProjects(): Promise<Project[]> {
   return data.projects;
 }
 
-export async function getProject(id: string): Promise<Project> {
-  const { data } = await api.get<{ project: Project }>(`/projects/${id}`);
+export async function getProject(idOrSlug: string): Promise<Project> {
+  const { data } = await api.get<{ project: Project }>(
+    `/projects/${idOrSlug}`,
+  );
   return data.project;
 }
 

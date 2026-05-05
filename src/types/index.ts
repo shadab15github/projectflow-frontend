@@ -29,6 +29,7 @@ export interface Project {
   _id: string;
   tenantId: string;
   name: string;
+  slug: string;
   description: string;
   status: ProjectStatus;
   members: string[];

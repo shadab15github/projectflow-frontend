@@ -34,12 +34,12 @@ onMounted(async () => {
   }
 });
 
-function openProject(id: string): void {
-  router.push({ name: 'project-detail', params: { id } });
+function openProject(slug: string): void {
+  router.push({ name: 'project-detail', params: { slug } });
 }
 
-function onCreated(id: string): void {
-  openProject(id);
+function onCreated(slug: string): void {
+  openProject(slug);
 }
 
 function formatDate(iso: string): string {
@@ -97,8 +97,8 @@ function formatDate(iso: string): string {
         class="cursor-pointer transition-colors hover:bg-accent/40"
         role="button"
         tabindex="0"
-        @click="openProject(project._id)"
-        @keydown.enter="openProject(project._id)"
+        @click="openProject(project.slug)"
+        @keydown.enter="openProject(project.slug)"
       >
         <CardHeader>
           <CardTitle>{{ project.name }}</CardTitle>

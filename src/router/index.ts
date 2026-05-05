@@ -54,7 +54,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/modules/app/ForYouPage.vue'),
       },
       {
-        path: 'projects/:id',
+        path: 'projects/:slug',
         component: () => import('@/modules/app/ProjectDetailPage.vue'),
         children: [
           {
@@ -62,7 +62,7 @@ const routes: RouteRecordRaw[] = [
             name: 'project-detail',
             redirect: (to) => ({
               name: 'project-summary',
-              params: { id: to.params.id },
+              params: { slug: to.params.slug },
             }),
           },
           {

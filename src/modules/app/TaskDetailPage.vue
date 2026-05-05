@@ -232,12 +232,16 @@ async function remove(): Promise<void> {
   deleting.value = true;
   deleteError.value = null;
   try {
-    const projectId = task.value.projectId;
+    const projectSlug = project.value?.slug;
     await taskStore.deleteTask(task.value._id);
-    await router.replace({
-      name: 'project-detail',
-      params: { id: projectId },
-    });
+    if (projectSlug) {
+      await router.replace({
+        name: 'project-detail',
+        params: { slug: projectSlug },
+      });
+    } else {
+      await router.replace({ name: 'dashboard' });
+    }
   } catch (err) {
     deleteError.value = extractMessage(err, 'Failed to delete task.');
   } finally {
@@ -268,7 +272,7 @@ function formatDate(iso: string): string {
         <div class="flex flex-col gap-1">
           <RouterLink
             v-if="project"
-            :to="{ name: 'project-detail', params: { id: project._id } }"
+            :to="{ name: 'project-detail', params: { slug: project.slug } }"
             class="text-xs text-muted-foreground hover:underline"
           >
             ← {{ project.name }}

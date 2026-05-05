@@ -55,7 +55,8 @@ const editOpen = ref(false);
 const deleting = ref(false);
 const deleteError = ref<string | null>(null);
 
-const projectId = computed<string>(() => route.params.id as string);
+const projectSlug = computed<string>(() => route.params.slug as string);
+const projectId = computed<string>(() => project.value?._id ?? '');
 
 const canEdit = computed<boolean>(() => {
   const role = auth.user?.role;
@@ -85,7 +86,7 @@ async function reload(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    project.value = await projectStore.fetchProject(projectId.value);
+    project.value = await projectStore.fetchProject(projectSlug.value);
     await reloadTasks();
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.status === 404) {
@@ -99,6 +100,7 @@ async function reload(): Promise<void> {
 }
 
 async function reloadTasks(): Promise<void> {
+  if (!projectId.value) return;
   tasksLoading.value = true;
   tasksError.value = null;
   try {
@@ -156,7 +158,7 @@ async function onDelete(): Promise<void> {
 }
 
 onMounted(reload);
-watch(projectId, reload);
+watch(projectSlug, reload);
 
 provide(projectContextKey, {
   project,
@@ -277,7 +279,7 @@ provide(projectContextKey, {
         <RouterLink
           v-for="tab in TABS"
           :key="tab.name"
-          :to="{ name: tab.name, params: { id: projectId } }"
+          :to="{ name: tab.name, params: { slug: projectSlug } }"
           class="flex items-center gap-1.5 px-3 py-3 text-sm whitespace-nowrap border-b-2 border-transparent text-muted-foreground hover:text-foreground"
           active-class="!border-primary !text-foreground font-medium"
         >

@@ -22,7 +22,7 @@ interface Props {
 const props = defineProps<Props>();
 const emit = defineEmits<{
   'update:open': [value: boolean];
-  created: [projectId: string];
+  created: [projectSlug: string];
 }>();
 
 const projectStore = useProjectStore();
@@ -91,7 +91,7 @@ async function onSubmit(): Promise<void> {
       description: form.description.trim() || undefined,
       members: parseMembers(),
     });
-    emit('created', project._id);
+    emit('created', project.slug);
     emit('update:open', false);
   } catch (err) {
     if (axios.isAxiosError(err)) {

@@ -193,7 +193,7 @@ function openTask(taskId: string): void {
           <p class="text-sm text-muted-foreground">
             Get a snapshot of the status of your work items.
             <RouterLink
-              :to="{ name: 'project-list', params: { id: project?._id } }"
+              :to="{ name: 'project-list', params: { slug: project?.slug } }"
               class="text-primary hover:underline"
             >
               View all work items
