@@ -1,18 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref } from "vue";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-} from '@/components/ui/resizable';
-import AppSidebar from '@/components/layout/AppSidebar.vue';
-import AppHeader from '@/components/layout/AppHeader.vue';
+} from "@/components/ui/resizable";
+import AppSidebar from "@/components/layout/AppSidebar.vue";
+import AppHeader from "@/components/layout/AppHeader.vue";
 
-const SIDEBAR_SIZE_KEY = 'projectflow:sidebar-size';
+const SIDEBAR_SIZE_KEY = "projectflow:sidebar-size";
 const DEFAULT_SIDEBAR_SIZE = 18;
 
 const initialSidebarSize = ref<number>(DEFAULT_SIDEBAR_SIZE);
-const stored = typeof window !== 'undefined' ? window.localStorage.getItem(SIDEBAR_SIZE_KEY) : null;
+const stored =
+  typeof window !== "undefined"
+    ? window.localStorage.getItem(SIDEBAR_SIZE_KEY)
+    : null;
 if (stored) {
   const parsed = Number(stored);
   if (!Number.isNaN(parsed) && parsed >= 14 && parsed <= 30) {
@@ -22,7 +25,7 @@ if (stored) {
 
 function persistSidebarSize(sizes: number[]): void {
   const [sidebar] = sizes;
-  if (typeof sidebar === 'number') {
+  if (typeof sidebar === "number") {
     window.localStorage.setItem(SIDEBAR_SIZE_KEY, String(sidebar));
   }
 }
@@ -48,7 +51,7 @@ function persistSidebarSize(sizes: number[]): void {
     <ResizablePanel :default-size="100 - initialSidebarSize">
       <div class="h-full flex flex-col">
         <AppHeader />
-        <main class="flex-1 min-h-0 overflow-y-auto p-6">
+        <main class="flex-1 min-h-0 overflow-y-auto">
           <RouterView />
         </main>
       </div>

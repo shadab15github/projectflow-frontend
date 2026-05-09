@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { storeToRefs } from 'pinia';
-import { useAuthStore } from '@/store/auth';
-import { useProjectStore } from '@/store/project';
-import { Button } from '@/components/ui/button';
+import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
+import { useAuthStore } from "@/store/auth";
+import { useProjectStore } from "@/store/project";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import CreateProjectDialog from './CreateProjectDialog.vue';
+} from "@/components/ui/card";
+import CreateProjectDialog from "./CreateProjectDialog.vue";
 
 const auth = useAuthStore();
 const projectStore = useProjectStore();
@@ -23,7 +23,7 @@ const dialogOpen = ref(false);
 
 const canCreate = computed<boolean>(() => {
   const role = auth.user?.role;
-  return role === 'manager' || role === 'admin' || role === 'super_admin';
+  return role === "manager" || role === "admin" || role === "super_admin";
 });
 
 onMounted(async () => {
@@ -35,7 +35,7 @@ onMounted(async () => {
 });
 
 function openProject(slug: string): void {
-  router.push({ name: 'project-detail', params: { slug } });
+  router.push({ name: "project-detail", params: { slug } });
 }
 
 function onCreated(slug: string): void {
@@ -48,7 +48,7 @@ function formatDate(iso: string): string {
 </script>
 
 <template>
-  <section class="flex flex-col gap-6">
+  <section class="flex flex-col gap-6 p-6">
     <header class="flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-semibold">Dashboard</h1>
@@ -78,8 +78,8 @@ function formatDate(iso: string): string {
       <p class="max-w-sm text-sm text-muted-foreground">
         {{
           canCreate
-            ? 'Create your first project to start organizing tasks with your team.'
-            : 'Ask a manager or admin to add you to a project.'
+            ? "Create your first project to start organizing tasks with your team."
+            : "Ask a manager or admin to add you to a project."
         }}
       </p>
       <Button v-if="canCreate" @click="dialogOpen = true">
@@ -87,10 +87,7 @@ function formatDate(iso: string): string {
       </Button>
     </div>
 
-    <div
-      v-else
-      class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-    >
+    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Card
         v-for="project in projects"
         :key="project._id"
@@ -104,14 +101,18 @@ function formatDate(iso: string): string {
           <CardTitle>{{ project.name }}</CardTitle>
           <CardDescription>
             {{
-              project.description ? project.description : 'No description yet.'
+              project.description ? project.description : "No description yet."
             }}
           </CardDescription>
         </CardHeader>
         <CardContent
           class="flex items-center justify-between text-xs text-muted-foreground"
         >
-          <span>{{ project.members.length }} member{{ project.members.length === 1 ? '' : 's' }}</span>
+          <span
+            >{{ project.members.length }} member{{
+              project.members.length === 1 ? "" : "s"
+            }}</span
+          >
           <span>Updated {{ formatDate(project.updatedAt) }}</span>
         </CardContent>
       </Card>
