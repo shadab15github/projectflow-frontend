@@ -98,7 +98,14 @@ function formatDate(iso: string): string {
         @keydown.enter="openProject(project.slug)"
       >
         <CardHeader>
-          <CardTitle>{{ project.name }}</CardTitle>
+          <div class="flex items-center gap-2">
+            <span
+              class="inline-flex items-center rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-primary"
+            >
+              {{ project.key }}
+            </span>
+            <CardTitle class="truncate">{{ project.name }}</CardTitle>
+          </div>
           <CardDescription>
             {{
               project.description ? project.description : "No description yet."

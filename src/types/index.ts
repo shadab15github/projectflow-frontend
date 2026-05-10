@@ -25,6 +25,19 @@ export interface Tenant {
 
 export type ProjectStatus = 'active' | 'archived';
 
+export type ProjectTemplate = 'board' | 'list';
+
+export type ProjectManagement = 'team-managed' | 'company-managed';
+
+export type ProjectAccess = 'open' | 'private';
+
+export type ProjectMemberRole = 'administrator' | 'member' | 'viewer';
+
+export interface ProjectMember {
+  userId: string;
+  role: ProjectMemberRole;
+}
+
 export interface Project {
   _id: string;
   tenantId: string;
@@ -32,7 +45,11 @@ export interface Project {
   slug: string;
   description: string;
   status: ProjectStatus;
-  members: string[];
+  template: ProjectTemplate;
+  key: string;
+  management: ProjectManagement;
+  access: ProjectAccess;
+  members: ProjectMember[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -41,14 +58,22 @@ export interface Project {
 export interface CreateProjectPayload {
   name: string;
   description?: string;
-  members?: string[];
+  template?: ProjectTemplate;
+  key: string;
+  management?: ProjectManagement;
+  access?: ProjectAccess;
+  members?: ProjectMember[];
 }
 
 export interface UpdateProjectPayload {
   name?: string;
   description?: string;
   status?: ProjectStatus;
-  members?: string[];
+  template?: ProjectTemplate;
+  key?: string;
+  management?: ProjectManagement;
+  access?: ProjectAccess;
+  members?: ProjectMember[];
 }
 
 export interface Task {

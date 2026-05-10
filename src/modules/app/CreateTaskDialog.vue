@@ -2,7 +2,7 @@
 import { reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import { useTaskStore } from '@/store/task';
-import type { TaskPriority, TaskState } from '@/types';
+import type { ProjectMember, TaskPriority, TaskState } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 interface Props {
   open: boolean;
   projectId: string;
-  projectMembers: string[];
+  projectMembers: ProjectMember[];
 }
 
 const props = defineProps<Props>();
@@ -245,11 +245,11 @@ function setOpen(value: boolean): void {
             </SelectTrigger>
             <SelectContent>
               <SelectItem
-                v-for="memberId in props.projectMembers"
-                :key="memberId"
-                :value="memberId"
+                v-for="m in props.projectMembers"
+                :key="m.userId"
+                :value="m.userId"
               >
-                <span class="font-mono text-xs">{{ memberId }}</span>
+                <span class="font-mono text-xs">{{ m.userId }}</span>
               </SelectItem>
             </SelectContent>
           </Select>

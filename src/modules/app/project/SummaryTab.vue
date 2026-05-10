@@ -332,17 +332,20 @@ function openTask(taskId: string): void {
       </div>
       <div v-else class="flex flex-wrap gap-2">
         <div
-          v-for="memberId in project.members"
-          :key="memberId"
+          v-for="m in project.members"
+          :key="m.userId"
           class="flex items-center gap-2 rounded-full border px-2 py-1"
         >
           <Avatar class="size-6">
             <AvatarFallback class="text-[10px]">
-              {{ memberInitials(memberId) }}
+              {{ memberInitials(m.userId) }}
             </AvatarFallback>
           </Avatar>
           <span class="font-mono text-xs text-muted-foreground">
-            {{ memberId.slice(-6) }}
+            {{ m.userId.slice(-6) }}
+          </span>
+          <span class="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {{ m.role }}
           </span>
         </div>
       </div>

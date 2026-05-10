@@ -442,11 +442,11 @@ function formatDate(iso: string): string {
               <SelectContent>
                 <SelectItem :value="UNASSIGNED_VALUE">Unassigned</SelectItem>
                 <SelectItem
-                  v-for="memberId in project?.members ?? []"
-                  :key="memberId"
-                  :value="memberId"
+                  v-for="m in project?.members ?? []"
+                  :key="m.userId"
+                  :value="m.userId"
                 >
-                  <span class="font-mono text-xs">{{ memberId }}</span>
+                  <span class="font-mono text-xs">{{ m.userId }}</span>
                 </SelectItem>
               </SelectContent>
             </Select>
