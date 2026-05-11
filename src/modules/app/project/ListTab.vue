@@ -3,19 +3,24 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { VsxIcon } from 'vue-iconsax';
-import { useTaskStore } from '@/store/task';
-import type { Task, TaskPriority, TaskState } from '@/types';
+import { useWorkItemStore } from '@/store/workItem';
+import type {
+  WorkItem,
+  WorkItemPriority,
+  WorkItemState,
+  WorkItemType,
+} from '@/types';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useProjectContext } from './projectContext';
 
 const router = useRouter();
-const taskStore = useTaskStore();
-const { tasks } = storeToRefs(taskStore);
+const workItemStore = useWorkItemStore();
+const { items } = storeToRefs(workItemStore);
 const { tasksLoading, tasksError, canCreateTask, openCreateTask } =
   useProjectContext();
 
-const STATE_OPTIONS: { value: TaskState | 'ALL'; label: string }[] = [
+const STATE_OPTIONS: { value: WorkItemState | 'ALL'; label: string }[] = [
   { value: 'ALL', label: 'All' },
   { value: 'TODO', label: 'To do' },
   { value: 'IN_PROGRESS', label: 'In progress' },
@@ -25,7 +30,14 @@ const STATE_OPTIONS: { value: TaskState | 'ALL'; label: string }[] = [
   { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
-const STATE_LABELS: Record<TaskState, string> = {
+const TYPE_OPTIONS: { value: WorkItemType | 'ALL'; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'segment', label: 'Segments' },
+  { value: 'task', label: 'Tasks' },
+  { value: 'subtask', label: 'Subtasks' },
+];
+
+const STATE_LABELS: Record<WorkItemState, string> = {
   TODO: 'To do',
   IN_PROGRESS: 'In progress',
   IN_REVIEW: 'In review',
@@ -34,8 +46,8 @@ const STATE_LABELS: Record<TaskState, string> = {
   CANCELLED: 'Cancelled',
 };
 
-const STATE_BADGE: Record<TaskState, string> = {
-  TODO: 'bg-green-100 text-green-800',
+const STATE_BADGE: Record<WorkItemState, string> = {
+  TODO: 'bg-slate-100 text-slate-800',
   IN_PROGRESS: 'bg-blue-100 text-blue-800',
   IN_REVIEW: 'bg-purple-100 text-purple-800',
   DONE: 'bg-emerald-100 text-emerald-800',
@@ -43,21 +55,43 @@ const STATE_BADGE: Record<TaskState, string> = {
   CANCELLED: 'bg-gray-100 text-gray-700',
 };
 
-const PRIORITY_BADGE: Record<TaskPriority, string> = {
+const PRIORITY_BADGE: Record<WorkItemPriority, string> = {
   low: 'bg-muted text-muted-foreground',
   medium: 'bg-blue-100 text-blue-800',
   high: 'bg-amber-100 text-amber-800',
   urgent: 'bg-red-100 text-red-800',
 };
 
-const filter = ref<TaskState | 'ALL'>('ALL');
+const TYPE_META: Record<
+  WorkItemType,
+  { icon: string; text: string; label: string }
+> = {
+  segment: { icon: 'Element4', text: 'text-violet-500', label: 'Segment' },
+  task: { icon: 'TaskSquare', text: 'text-sky-500', label: 'Task' },
+  subtask: {
+    icon: 'TickSquare',
+    text: 'text-emerald-500',
+    label: 'Subtask',
+  },
+};
 
-const visibleTasks = computed<Task[]>(() => {
-  if (filter.value === 'ALL') return tasks.value;
-  return tasks.value.filter((t) => t.state === filter.value);
+const stateFilter = ref<WorkItemState | 'ALL'>('ALL');
+const typeFilter = ref<WorkItemType | 'ALL'>('ALL');
+
+const visibleItems = computed<WorkItem[]>(() => {
+  return items.value.filter((i) => {
+    if (stateFilter.value !== 'ALL' && i.state !== stateFilter.value) {
+      return false;
+    }
+    if (typeFilter.value !== 'ALL' && i.type !== typeFilter.value) {
+      return false;
+    }
+    return true;
+  });
 });
 
-function memberInitials(id: string): string {
+function memberInitials(id: string | null): string {
+  if (!id) return '?';
   return id.slice(-2).toUpperCase();
 }
 
@@ -65,8 +99,8 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-function openTask(taskId: string): void {
-  void router.push({ name: 'task-detail', params: { id: taskId } });
+function openItem(id: string): void {
+  void router.push({ name: 'workitem-detail', params: { id } });
 }
 </script>
 
@@ -74,16 +108,31 @@ function openTask(taskId: string): void {
   <div class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex flex-wrap gap-2">
-        <Button
-          v-for="opt in STATE_OPTIONS"
-          :key="opt.value"
-          type="button"
-          size="sm"
-          :variant="filter === opt.value ? 'default' : 'outline'"
-          @click="filter = opt.value"
-        >
-          {{ opt.label }}
-        </Button>
+        <div class="flex flex-wrap gap-1.5">
+          <Button
+            v-for="opt in TYPE_OPTIONS"
+            :key="opt.value"
+            type="button"
+            size="sm"
+            :variant="typeFilter === opt.value ? 'default' : 'outline'"
+            @click="typeFilter = opt.value"
+          >
+            {{ opt.label }}
+          </Button>
+        </div>
+        <span class="w-px bg-border mx-1" />
+        <div class="flex flex-wrap gap-1.5">
+          <Button
+            v-for="opt in STATE_OPTIONS"
+            :key="opt.value"
+            type="button"
+            size="sm"
+            :variant="stateFilter === opt.value ? 'default' : 'outline'"
+            @click="stateFilter = opt.value"
+          >
+            {{ opt.label }}
+          </Button>
+        </div>
       </div>
 
       <Button
@@ -93,28 +142,28 @@ function openTask(taskId: string): void {
         @click="openCreateTask"
       >
         <VsxIcon iconName="Add" class="size-4" />
-        New task
+        Create
       </Button>
     </div>
 
     <p v-if="tasksError" class="text-sm text-destructive">{{ tasksError }}</p>
 
     <p
-      v-if="tasksLoading && tasks.length === 0"
+      v-if="tasksLoading && items.length === 0"
       class="text-sm text-muted-foreground"
     >
-      Loading tasks…
+      Loading…
     </p>
 
     <div
-      v-else-if="visibleTasks.length === 0"
+      v-else-if="visibleItems.length === 0"
       class="rounded-lg border border-dashed p-12 text-center"
     >
       <p class="text-sm text-muted-foreground">
         {{
-          tasks.length === 0
-            ? 'No tasks yet.'
-            : 'No tasks match the selected filter.'
+          items.length === 0
+            ? 'No work items yet.'
+            : 'No items match the selected filters.'
         }}
       </p>
     </div>
@@ -123,11 +172,12 @@ function openTask(taskId: string): void {
       <table class="w-full text-sm">
         <thead class="bg-muted/40 text-muted-foreground">
           <tr>
-            <th class="text-left font-medium px-4 py-2">Title</th>
+            <th class="text-left font-medium px-4 py-2 w-24">Type</th>
+            <th class="text-left font-medium px-4 py-2 w-28">Key</th>
+            <th class="text-left font-medium px-4 py-2">Summary</th>
             <th class="text-left font-medium px-4 py-2">State</th>
             <th class="text-left font-medium px-4 py-2">Priority</th>
             <th class="text-left font-medium px-4 py-2">Assignee</th>
-            <th class="text-left font-medium px-4 py-2">Labels</th>
             <th class="text-left font-medium px-4 py-2 whitespace-nowrap">
               Updated
             </th>
@@ -135,61 +185,62 @@ function openTask(taskId: string): void {
         </thead>
         <tbody>
           <tr
-            v-for="task in visibleTasks"
-            :key="task._id"
+            v-for="item in visibleItems"
+            :key="item._id"
             class="border-t cursor-pointer hover:bg-accent/40"
-            @click="openTask(task._id)"
+            @click="openItem(item._id)"
           >
-            <td class="px-4 py-2.5 font-medium">{{ task.title }}</td>
+            <td class="px-4 py-2.5">
+              <span class="inline-flex items-center gap-1.5">
+                <VsxIcon
+                  :iconName="TYPE_META[item.type].icon"
+                  class="size-3.5"
+                  :class="TYPE_META[item.type].text"
+                />
+                <span class="text-xs">{{ TYPE_META[item.type].label }}</span>
+              </span>
+            </td>
+            <td class="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+              {{ item.key }}
+            </td>
+            <td class="px-4 py-2.5 font-medium">{{ item.title }}</td>
             <td class="px-4 py-2.5">
               <span
                 :class="[
                   'inline-block rounded px-2 py-0.5 text-xs',
-                  STATE_BADGE[task.state],
+                  STATE_BADGE[item.state],
                 ]"
               >
-                {{ STATE_LABELS[task.state] }}
+                {{ STATE_LABELS[item.state] }}
               </span>
             </td>
             <td class="px-4 py-2.5">
               <span
                 :class="[
                   'inline-block rounded px-2 py-0.5 text-xs capitalize',
-                  PRIORITY_BADGE[task.priority],
+                  PRIORITY_BADGE[item.priority],
                 ]"
               >
-                {{ task.priority }}
+                {{ item.priority }}
               </span>
             </td>
             <td class="px-4 py-2.5">
-              <div v-if="task.assigneeId" class="flex items-center gap-2">
+              <div v-if="item.assigneeId" class="flex items-center gap-2">
                 <Avatar class="size-6">
                   <AvatarFallback class="text-[10px]">
-                    {{ memberInitials(task.assigneeId) }}
+                    {{ memberInitials(item.assigneeId) }}
                   </AvatarFallback>
                 </Avatar>
                 <span class="font-mono text-xs text-muted-foreground">
-                  @{{ task.assigneeId.slice(-6) }}
+                  @{{ item.assigneeId.slice(-6) }}
                 </span>
               </div>
               <span v-else class="text-xs text-muted-foreground">
                 Unassigned
               </span>
             </td>
-            <td class="px-4 py-2.5">
-              <div v-if="task.labels.length" class="flex flex-wrap gap-1">
-                <span
-                  v-for="label in task.labels"
-                  :key="label"
-                  class="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                >
-                  {{ label }}
-                </span>
-              </div>
-              <span v-else class="text-xs text-muted-foreground">—</span>
-            </td>
             <td class="px-4 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
-              {{ formatDate(task.updatedAt) }}
+              {{ formatDate(item.updatedAt) }}
             </td>
           </tr>
         </tbody>

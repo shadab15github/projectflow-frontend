@@ -55,7 +55,7 @@ function logout(): void {
     <div class="flex items-center gap-1">
       <Button size="sm" class="gap-1.5 mr-2">
         <VsxIcon iconName="Add" class="size-4" />
-        Add Task
+        Create
       </Button>
 
       <Button variant="ghost" size="icon-sm" aria-label="Notifications">

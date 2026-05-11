@@ -3,15 +3,15 @@ import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { VsxIcon } from 'vue-iconsax';
-import { useTaskStore } from '@/store/task';
-import type { Task, TaskState } from '@/types';
+import { useWorkItemStore } from '@/store/workItem';
+import type { WorkItem, WorkItemState } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useProjectContext } from './projectContext';
 
 const router = useRouter();
-const taskStore = useTaskStore();
-const { tasks } = storeToRefs(taskStore);
+const workItemStore = useWorkItemStore();
+const { items } = storeToRefs(workItemStore);
 const { project, tasksLoading } = useProjectContext();
 
 interface StateMeta {
@@ -19,7 +19,7 @@ interface StateMeta {
   color: string;
 }
 
-const STATE_META: Record<TaskState, StateMeta> = {
+const STATE_META: Record<WorkItemState, StateMeta> = {
   TODO: { label: 'To Do', color: '#22c55e' },
   IN_PROGRESS: { label: 'In Progress', color: '#3b82f6' },
   IN_REVIEW: { label: 'In Review', color: '#a855f7' },
@@ -36,21 +36,21 @@ function withinLast7Days(iso: string): boolean {
 
 const completedLast7 = computed<number>(
   () =>
-    tasks.value.filter(
+    items.value.filter(
       (t) => t.state === 'DONE' && withinLast7Days(t.updatedAt),
     ).length,
 );
 
 const updatedLast7 = computed<number>(
-  () => tasks.value.filter((t) => withinLast7Days(t.updatedAt)).length,
+  () => items.value.filter((t) => withinLast7Days(t.updatedAt)).length,
 );
 
 const createdLast7 = computed<number>(
-  () => tasks.value.filter((t) => withinLast7Days(t.createdAt)).length,
+  () => items.value.filter((t) => withinLast7Days(t.createdAt)).length,
 );
 
 interface DonutSegment {
-  state: TaskState;
+  state: WorkItemState;
   label: string;
   color: string;
   count: number;
@@ -62,7 +62,7 @@ const RADIUS = 40;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 const stateBreakdown = computed<DonutSegment[]>(() => {
-  const counts: Record<TaskState, number> = {
+  const counts: Record<WorkItemState, number> = {
     TODO: 0,
     IN_PROGRESS: 0,
     IN_REVIEW: 0,
@@ -70,13 +70,13 @@ const stateBreakdown = computed<DonutSegment[]>(() => {
     BLOCKED: 0,
     CANCELLED: 0,
   };
-  for (const task of tasks.value) counts[task.state] += 1;
+  for (const item of items.value) counts[item.state] += 1;
 
-  const total = tasks.value.length;
+  const total = items.value.length;
   const segments: DonutSegment[] = [];
   let cumulative = 0;
 
-  (Object.keys(counts) as TaskState[]).forEach((state) => {
+  (Object.keys(counts) as WorkItemState[]).forEach((state) => {
     const count = counts[state];
     if (count === 0) return;
     const length = total > 0 ? (count / total) * CIRCUMFERENCE : 0;
@@ -94,10 +94,10 @@ const stateBreakdown = computed<DonutSegment[]>(() => {
   return segments;
 });
 
-const totalTasks = computed<number>(() => tasks.value.length);
+const totalItems = computed<number>(() => items.value.length);
 
-const recentActivity = computed<Task[]>(() =>
-  [...tasks.value]
+const recentActivity = computed<WorkItem[]>(() =>
+  [...items.value]
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
     .slice(0, 6),
 );
@@ -115,8 +115,8 @@ function memberInitials(id: string): string {
   return id.slice(-2).toUpperCase();
 }
 
-function openTask(taskId: string): void {
-  void router.push({ name: 'task-detail', params: { id: taskId } });
+function openItem(id: string): void {
+  void router.push({ name: 'workitem-detail', params: { id } });
 }
 </script>
 
@@ -202,7 +202,7 @@ function openTask(taskId: string): void {
         </div>
 
         <div
-          v-if="totalTasks === 0"
+          v-if="totalItems === 0"
           class="text-sm text-muted-foreground py-8 text-center"
         >
           {{ tasksLoading ? 'Loading…' : 'No work items yet.' }}
@@ -236,9 +236,9 @@ function openTask(taskId: string): void {
             <div
               class="absolute inset-0 flex flex-col items-center justify-center text-center"
             >
-              <div class="text-2xl font-semibold">{{ totalTasks }}</div>
+              <div class="text-2xl font-semibold">{{ totalItems }}</div>
               <div class="text-xs text-muted-foreground">
-                Total work item{{ totalTasks === 1 ? '' : 's' }}
+                Total work item{{ totalItems === 1 ? '' : 's' }}
               </div>
             </div>
           </div>
@@ -279,33 +279,33 @@ function openTask(taskId: string): void {
 
         <ul v-else class="flex flex-col gap-3 max-h-72 overflow-y-auto pr-1">
           <li
-            v-for="task in recentActivity"
-            :key="task._id"
+            v-for="item in recentActivity"
+            :key="item._id"
             class="flex items-start gap-3 text-sm cursor-pointer hover:bg-accent/40 rounded-md p-2 -m-2"
-            @click="openTask(task._id)"
+            @click="openItem(item._id)"
           >
             <Avatar class="size-7 shrink-0">
               <AvatarFallback class="text-[10px]">
-                {{ memberInitials(task.createdBy) }}
+                {{ memberInitials(item.createdBy) }}
               </AvatarFallback>
             </Avatar>
             <div class="flex-1 min-w-0">
               <p class="truncate">
-                <span class="font-medium">@{{ task.createdBy.slice(-6) }}</span>
+                <span class="font-medium">@{{ item.createdBy.slice(-6) }}</span>
                 <span class="text-muted-foreground"> updated </span>
-                <span class="font-medium">{{ task.title }}</span>
+                <span class="font-medium">{{ item.title }}</span>
               </p>
               <p class="text-xs text-muted-foreground mt-0.5">
                 <span
                   class="inline-block px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide mr-2"
                   :style="{
-                    backgroundColor: STATE_META[task.state].color + '22',
-                    color: STATE_META[task.state].color,
+                    backgroundColor: STATE_META[item.state].color + '22',
+                    color: STATE_META[item.state].color,
                   }"
                 >
-                  {{ STATE_META[task.state].label }}
+                  {{ STATE_META[item.state].label }}
                 </span>
-                {{ formatRelative(task.updatedAt) }}
+                {{ formatRelative(item.updatedAt) }}
               </p>
             </div>
           </li>

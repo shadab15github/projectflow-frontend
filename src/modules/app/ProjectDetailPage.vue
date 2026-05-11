@@ -5,7 +5,7 @@ import axios from 'axios';
 import { VsxIcon } from 'vue-iconsax';
 import { useAuthStore } from '@/store/auth';
 import { useProjectStore } from '@/store/project';
-import { useTaskStore } from '@/store/task';
+import { useWorkItemStore } from '@/store/workItem';
 import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import CreateTaskDialog from './CreateTaskDialog.vue';
+import CreateWorkItemDialog from './CreateWorkItemDialog.vue';
 import EditProjectDialog from './project/EditProjectDialog.vue';
 import { projectContextKey } from './project/projectContext';
 
@@ -28,20 +28,19 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { name: 'project-summary', label: 'Summary', icon: 'Global' },
-  { name: 'project-list', label: 'List', icon: 'RowVertical' },
+  { name: 'project-backlog', label: 'Backlog', icon: 'DocumentText' },
   { name: 'project-board', label: 'Board', icon: 'Element4' },
-  { name: 'project-code', label: 'Code', icon: 'Code' },
-  { name: 'project-forms', label: 'Forms', icon: 'Note' },
+  { name: 'project-list', label: 'List', icon: 'RowVertical' },
   { name: 'project-timeline', label: 'Timeline', icon: 'Calendar' },
+  { name: 'project-components', label: 'Components', icon: 'Diagram' },
   { name: 'project-docs', label: 'Docs', icon: 'DocumentText' },
-  { name: 'project-development', label: 'Development', icon: 'CodeCircle' },
 ];
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const projectStore = useProjectStore();
-const taskStore = useTaskStore();
+const workItemStore = useWorkItemStore();
 
 const project = ref<Project | null>(null);
 const loading = ref(false);
@@ -50,7 +49,7 @@ const loadError = ref<string | null>(null);
 const tasksLoading = ref(false);
 const tasksError = ref<string | null>(null);
 
-const createTaskOpen = ref(false);
+const createOpen = ref(false);
 const editOpen = ref(false);
 const deleting = ref(false);
 const deleteError = ref<string | null>(null);
@@ -87,7 +86,7 @@ async function reload(): Promise<void> {
   loadError.value = null;
   try {
     project.value = await projectStore.fetchProject(projectSlug.value);
-    await reloadTasks();
+    await reloadItems();
   } catch (err) {
     if (axios.isAxiosError(err) && err.response?.status === 404) {
       loadError.value = 'Project not found.';
@@ -99,19 +98,19 @@ async function reload(): Promise<void> {
   }
 }
 
-async function reloadTasks(): Promise<void> {
+async function reloadItems(): Promise<void> {
   if (!projectId.value) return;
   tasksLoading.value = true;
   tasksError.value = null;
   try {
-    await taskStore.fetchTasks({ projectId: projectId.value });
+    await workItemStore.fetchItems({ projectId: projectId.value });
   } catch (err) {
     if (axios.isAxiosError(err)) {
       tasksError.value =
         (err.response?.data as { message?: string } | undefined)?.message ??
-        'Failed to load tasks.';
+        'Failed to load work items.';
     } else {
-      tasksError.value = 'Failed to load tasks.';
+      tasksError.value = 'Failed to load work items.';
     }
   } finally {
     tasksLoading.value = false;
@@ -119,11 +118,11 @@ async function reloadTasks(): Promise<void> {
 }
 
 function openCreateTask(): void {
-  createTaskOpen.value = true;
+  createOpen.value = true;
 }
 
-function onTaskCreated(): void {
-  void reloadTasks();
+function onItemCreated(): void {
+  void reloadItems();
 }
 
 function onProjectSaved(): void {
@@ -169,7 +168,7 @@ provide(projectContextKey, {
   canCreateTask,
   canDelete,
   reload,
-  reloadTasks,
+  reloadTasks: reloadItems,
   openCreateTask,
 });
 </script>
@@ -191,7 +190,7 @@ provide(projectContextKey, {
     </div>
 
     <template v-else-if="project">
-      <!-- Top bar: breadcrumb + project title + actions -->
+      <!-- Top bar -->
       <div class="flex flex-col gap-3 px-6 pt-5 pb-3">
         <RouterLink
           to="/app"
@@ -210,6 +209,11 @@ provide(projectContextKey, {
               </AvatarFallback>
             </Avatar>
             <h1 class="text-xl font-semibold truncate">{{ project.name }}</h1>
+            <span
+              class="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground"
+            >
+              {{ project.key }}
+            </span>
 
             <Button
               variant="ghost"
@@ -250,18 +254,15 @@ provide(projectContextKey, {
             </DropdownMenu>
           </div>
 
-          <div class="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" class="border" aria-label="Share">
-              <VsxIcon iconName="Send2" class="size-4" />
-            </Button>
-            <Button variant="ghost" size="icon-sm" class="border" aria-label="Automations">
-              <VsxIcon iconName="Flash" class="size-4" />
-            </Button>
-            <Button variant="ghost" size="icon-sm" class="border" aria-label="Comments">
-              <VsxIcon iconName="MessageText" class="size-4" />
-            </Button>
-            <Button variant="ghost" size="icon-sm" class="border" aria-label="Expand">
-              <VsxIcon iconName="Maximize3" class="size-4" />
+          <div class="flex items-center gap-2">
+            <Button
+              v-if="canCreateTask"
+              size="sm"
+              class="gap-1.5"
+              @click="openCreateTask"
+            >
+              <VsxIcon iconName="Add" class="size-4" />
+              Create
             </Button>
           </div>
         </div>
@@ -286,24 +287,17 @@ provide(projectContextKey, {
           <VsxIcon :iconName="tab.icon" class="size-4" />
           <span>{{ tab.label }}</span>
         </RouterLink>
-        <button
-          type="button"
-          class="ml-1 flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent"
-          aria-label="Add tab"
-        >
-          <VsxIcon iconName="Add" class="size-4" />
-        </button>
       </nav>
 
       <div class="p-6">
         <RouterView />
       </div>
 
-      <CreateTaskDialog
-        v-model:open="createTaskOpen"
-        :project-id="projectId"
-        :project-members="project.members"
-        @created="onTaskCreated"
+      <CreateWorkItemDialog
+        v-if="project"
+        v-model:open="createOpen"
+        :project="project"
+        @created="onItemCreated"
       />
 
       <EditProjectDialog

@@ -71,6 +71,11 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/modules/app/project/SummaryTab.vue'),
           },
           {
+            path: 'backlog',
+            name: 'project-backlog',
+            component: () => import('@/modules/app/project/BacklogTab.vue'),
+          },
+          {
             path: 'list',
             name: 'project-list',
             component: () => import('@/modules/app/project/ListTab.vue'),
@@ -81,37 +86,27 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/modules/app/project/BoardTab.vue'),
           },
           {
-            path: 'code',
-            name: 'project-code',
-            component: () => import('@/modules/app/project/CodeTab.vue'),
-          },
-          {
-            path: 'forms',
-            name: 'project-forms',
-            component: () => import('@/modules/app/project/FormsTab.vue'),
-          },
-          {
             path: 'timeline',
             name: 'project-timeline',
             component: () => import('@/modules/app/project/TimelineTab.vue'),
+          },
+          {
+            path: 'components',
+            name: 'project-components',
+            component: () =>
+              import('@/modules/app/project/ComponentsTab.vue'),
           },
           {
             path: 'docs',
             name: 'project-docs',
             component: () => import('@/modules/app/project/DocsTab.vue'),
           },
-          {
-            path: 'development',
-            name: 'project-development',
-            component: () =>
-              import('@/modules/app/project/DevelopmentTab.vue'),
-          },
         ],
       },
       {
-        path: 'tasks/:id',
-        name: 'task-detail',
-        component: () => import('@/modules/app/TaskDetailPage.vue'),
+        path: 'work-items/:id',
+        name: 'workitem-detail',
+        component: () => import('@/modules/app/WorkItemDetailPage.vue'),
       },
     ],
   },
