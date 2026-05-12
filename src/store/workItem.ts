@@ -18,6 +18,9 @@ export const useWorkItemStore = defineStore('workItem', () => {
   const typeFilter = ref<WorkItemType | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const total = ref(0);
+  const page = ref(1);
+  const limit = ref(25);
 
   const segments = computed<WorkItem[]>(() =>
     items.value.filter((i) => i.type === 'segment'),
@@ -73,8 +76,19 @@ export const useWorkItemStore = defineStore('workItem', () => {
     loading.value = true;
     error.value = null;
     currentProjectId.value = query.projectId;
+    // Non-paginated callers (Board, Backlog, etc.) get a high default limit
+    // so they still receive the full set. List view passes explicit page/limit.
+    const effective: WorkItemListQuery = {
+      ...query,
+      page: query.page ?? 1,
+      limit: query.limit ?? 200,
+    };
     try {
-      items.value = await workItemService.listWorkItems(query);
+      const result = await workItemService.listWorkItems(effective);
+      items.value = result.items;
+      total.value = result.total;
+      page.value = result.page;
+      limit.value = result.limit;
     } catch (err) {
       error.value = 'Failed to load work items';
       throw err;
@@ -138,6 +152,9 @@ export const useWorkItemStore = defineStore('workItem', () => {
     stateFilter.value = null;
     typeFilter.value = null;
     error.value = null;
+    total.value = 0;
+    page.value = 1;
+    limit.value = 25;
   }
 
   return {
@@ -148,6 +165,9 @@ export const useWorkItemStore = defineStore('workItem', () => {
     typeFilter,
     loading,
     error,
+    total,
+    page,
+    limit,
     segments,
     tasks,
     subtasks,

@@ -162,6 +162,17 @@ export interface WorkItemListQuery {
   assigneeId?: string;
   sprintId?: string | 'none';
   parentId?: string | 'none';
+  search?: string;
+  hideDone?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface WorkItemListResult {
+  items: WorkItem[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface Sprint {
