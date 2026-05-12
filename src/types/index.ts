@@ -155,17 +155,28 @@ export interface UpdateWorkItemPayload {
   attachments?: Omit<WorkItemAttachment, 'uploadedAt'>[];
 }
 
+export type WorkItemSortBy =
+  | 'updatedAt'
+  | 'createdAt'
+  | 'title'
+  | 'state'
+  | 'priority'
+  | 'key';
+
 export interface WorkItemListQuery {
   projectId: string;
   type?: WorkItemType;
   state?: WorkItemState;
-  assigneeId?: string;
+  assigneeId?: string | 'none';
+  assigneeIds?: (string | 'none')[];
   sprintId?: string | 'none';
   parentId?: string | 'none';
   search?: string;
   hideDone?: boolean;
   page?: number;
   limit?: number;
+  sortBy?: WorkItemSortBy;
+  sortDir?: 'asc' | 'desc';
 }
 
 export interface WorkItemListResult {

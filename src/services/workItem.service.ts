@@ -14,12 +14,17 @@ export async function listWorkItems(
   if (query.type) params.type = query.type;
   if (query.state) params.state = query.state;
   if (query.assigneeId) params.assigneeId = query.assigneeId;
+  if (query.assigneeIds && query.assigneeIds.length > 0) {
+    params.assigneeIds = query.assigneeIds.join(',');
+  }
   if (query.sprintId) params.sprintId = query.sprintId;
   if (query.parentId) params.parentId = query.parentId;
   if (query.search) params.search = query.search;
   if (query.hideDone) params.hideDone = 'true';
   if (query.page) params.page = String(query.page);
   if (query.limit) params.limit = String(query.limit);
+  if (query.sortBy) params.sortBy = query.sortBy;
+  if (query.sortDir) params.sortDir = query.sortDir;
 
   const { data } = await api.get<WorkItemListResult>('/work-items', {
     params,

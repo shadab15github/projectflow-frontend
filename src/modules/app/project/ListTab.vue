@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { VsxIcon } from "vue-iconsax";
 import axios from "axios";
@@ -10,12 +10,15 @@ import type {
   ProjectComponent,
   WorkItem,
   WorkItemPriority,
+  WorkItemSortBy,
   WorkItemState,
   WorkItemType,
 } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +32,7 @@ import { useProjectContext } from "./projectContext";
 const router = useRouter();
 const componentStore = useComponentStore();
 const userStore = useUserStore();
-const { project, tasksError, canCreateTask, openCreateTask } =
+const { project, tasksError, canCreateTask, openCreateTask, reloadTasks } =
   useProjectContext();
 
 const STATE_OPTIONS: { value: WorkItemState | "ALL"; label: string }[] = [
@@ -95,6 +98,113 @@ const TYPE_META: Record<
   },
 };
 
+// --- Column definitions ---
+type ColumnKey =
+  | "select"
+  | "summary"
+  | "state"
+  | "priority"
+  | "assignee"
+  | "updated"
+  | "actions";
+
+interface ColumnDef {
+  key: ColumnKey;
+  label: string;
+  sortBy?: WorkItemSortBy;
+  defaultWidth: number;
+  minWidth: number;
+}
+
+// Columns whose width is locked and cannot be resized by the user or any code
+// path — they're rendered from defaultWidth directly, not from columnWidths.
+const FIXED_WIDTH_COLUMNS = new Set<ColumnKey>(["select", "actions"]);
+
+const COLUMNS: ColumnDef[] = [
+  { key: "select", label: "", defaultWidth: 44, minWidth: 44 },
+  {
+    key: "summary",
+    label: "Summary",
+    sortBy: "title",
+    defaultWidth: 360,
+    minWidth: 200,
+  },
+  {
+    key: "state",
+    label: "State",
+    sortBy: "state",
+    defaultWidth: 140,
+    minWidth: 100,
+  },
+  {
+    key: "priority",
+    label: "Priority",
+    sortBy: "priority",
+    defaultWidth: 120,
+    minWidth: 90,
+  },
+  { key: "assignee", label: "Assignee", defaultWidth: 200, minWidth: 140 },
+  {
+    key: "updated",
+    label: "Updated",
+    sortBy: "updatedAt",
+    defaultWidth: 180,
+    minWidth: 140,
+  },
+  { key: "actions", label: "", defaultWidth: 56, minWidth: 56 },
+];
+
+const visibleColumns = ref<Record<ColumnKey, boolean>>({
+  select: true,
+  summary: true,
+  state: true,
+  priority: true,
+  assignee: true,
+  updated: true,
+  actions: true,
+});
+
+const columnWidths = ref<Record<ColumnKey, number>>(
+  Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth])) as Record<
+    ColumnKey,
+    number
+  >,
+);
+
+// Only the Summary column can be user-frozen (sticky left). The Actions column
+// is always pinned to the right edge of the table.
+const summaryFrozen = ref(false);
+
+const activeColumns = computed<ColumnDef[]>(() =>
+  COLUMNS.filter((c) => visibleColumns.value[c.key]),
+);
+
+function colWidth(key: ColumnKey): number {
+  if (FIXED_WIDTH_COLUMNS.has(key)) {
+    const def = COLUMNS.find((c) => c.key === key);
+    return def?.defaultWidth ?? 0;
+  }
+  return columnWidths.value[key];
+}
+
+function toggleColumn(key: ColumnKey): void {
+  // Don't allow hiding the Summary column — there must always be something
+  // to anchor the row.
+  if (key === "summary") return;
+  visibleColumns.value = {
+    ...visibleColumns.value,
+    [key]: !visibleColumns.value[key],
+  };
+}
+
+function resetColumns(): void {
+  for (const c of COLUMNS) {
+    visibleColumns.value[c.key] = true;
+    columnWidths.value[c.key] = c.defaultWidth;
+  }
+  summaryFrozen.value = false;
+}
+
 // --- Filters & UI state ---
 const search = ref("");
 const debouncedSearch = ref("");
@@ -110,14 +220,28 @@ watch(search, (v) => {
 const stateFilter = ref<WorkItemState | "ALL">("ALL");
 const typeFilter = ref<WorkItemType | "ALL">("ALL");
 const priorityFilter = ref<WorkItemPriority | "ALL">("ALL");
+const assigneeFilter = ref<Set<string>>(new Set());
 
 const hideDone = ref(false);
 const showHierarchy = ref(false);
 const expandedIds = ref<Set<string>>(new Set());
 
+// --- Sorting state ---
+const sortBy = ref<WorkItemSortBy>("updatedAt");
+const sortDir = ref<"asc" | "desc">("desc");
+
+function setSort(field: WorkItemSortBy): void {
+  if (sortBy.value === field) {
+    sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+  } else {
+    sortBy.value = field;
+    sortDir.value = "asc";
+  }
+}
+
 // --- Pagination state ---
 const page = ref(1);
-const limit = ref(25);
+const limit = ref(10);
 const total = ref(0);
 const totalPages = computed(() =>
   total.value === 0 ? 1 : Math.ceil(total.value / limit.value),
@@ -127,9 +251,18 @@ const items = ref<WorkItem[]>([]);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
 
-watch([stateFilter, typeFilter, priorityFilter, hideDone], () => {
-  page.value = 1;
-});
+// Client-side rank overrides (session-only). Maps item._id -> sequence number;
+// smaller is higher (top), larger is lower (bottom). Items without an override
+// keep server-sort order.
+const rankOverrides = ref<Map<string, number>>(new Map());
+let rankSeq = 0;
+
+watch(
+  [stateFilter, typeFilter, priorityFilter, assigneeFilter, hideDone],
+  () => {
+    page.value = 1;
+  },
+);
 
 async function fetchPage(): Promise<void> {
   if (!project.value?._id) return;
@@ -140,16 +273,34 @@ async function fetchPage(): Promise<void> {
       projectId: project.value._id,
       type: typeFilter.value === "ALL" ? undefined : typeFilter.value,
       state: stateFilter.value === "ALL" ? undefined : stateFilter.value,
+      assigneeIds:
+        assigneeFilter.value.size > 0 ? [...assigneeFilter.value] : undefined,
       search: debouncedSearch.value || undefined,
       hideDone: hideDone.value || undefined,
       page: page.value,
       limit: limit.value,
+      sortBy: sortBy.value,
+      sortDir: sortDir.value,
     });
     // Server doesn't filter by priority — apply client-side on the page.
-    items.value =
+    let pageItems =
       priorityFilter.value === "ALL"
         ? result.items
         : result.items.filter((i) => i.priority === priorityFilter.value);
+
+    // Apply session-only rank overrides
+    if (rankOverrides.value.size > 0) {
+      pageItems = [...pageItems].sort((a, b) => {
+        const ra = rankOverrides.value.get(a._id);
+        const rb = rankOverrides.value.get(b._id);
+        if (ra === undefined && rb === undefined) return 0;
+        if (ra === undefined) return 1;
+        if (rb === undefined) return -1;
+        return ra - rb;
+      });
+    }
+
+    items.value = pageItems;
     total.value = result.total;
   } catch (err) {
     if (axios.isAxiosError(err)) {
@@ -173,7 +324,10 @@ watch(
     stateFilter,
     typeFilter,
     priorityFilter,
+    assigneeFilter,
     hideDone,
+    sortBy,
+    sortDir,
   ],
   () => {
     void fetchPage();
@@ -270,7 +424,7 @@ function toggleExpand(id: string): void {
   expandedIds.value = next;
 }
 
-// --- Member avatars ---
+// --- Member avatars + assignee filter ---
 const projectMemberUsers = computed(() => {
   if (!project.value) return [];
   return project.value.members
@@ -282,6 +436,21 @@ const visibleMembers = computed(() => projectMemberUsers.value.slice(0, 5));
 const extraMembers = computed(() =>
   Math.max(projectMemberUsers.value.length - visibleMembers.value.length, 0),
 );
+
+function selectAssignee(id: string | "none"): void {
+  const next = new Set(assigneeFilter.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  assigneeFilter.value = next;
+}
+
+function isAssigneeSelected(id: string | "none"): boolean {
+  return assigneeFilter.value.has(id);
+}
+
+function clearAssigneeFilter(): void {
+  assigneeFilter.value = new Set();
+}
 
 function memberInitials(userId: string | null): string {
   return userStore.initials(userId);
@@ -352,11 +521,20 @@ const priorityFilterLabel = computed(
   () =>
     PRIORITY_OPTIONS.find((o) => o.value === priorityFilter.value)?.label ?? "",
 );
+const assigneeFilterLabel = computed(() => {
+  if (assigneeFilter.value.size === 0) return "";
+  const names = [...assigneeFilter.value].map((id) =>
+    id === "none" ? "Unassigned" : memberName(id),
+  );
+  if (names.length <= 2) return names.join(", ");
+  return `${names[0]}, ${names[1]} +${names.length - 2}`;
+});
 
 function clearFilters(): void {
   stateFilter.value = "ALL";
   typeFilter.value = "ALL";
   priorityFilter.value = "ALL";
+  assigneeFilter.value = new Set();
 }
 
 const activeFilterCount = computed(() => {
@@ -364,6 +542,7 @@ const activeFilterCount = computed(() => {
   if (stateFilter.value !== "ALL") n++;
   if (typeFilter.value !== "ALL") n++;
   if (priorityFilter.value !== "ALL") n++;
+  if (assigneeFilter.value.size > 0) n++;
   return n;
 });
 
@@ -420,11 +599,159 @@ function triggerDownload(blob: Blob, filename: string): void {
 function notImplemented(label: string): void {
   alert(`${label}: not implemented yet.`);
 }
+
+// --- Row actions ---
+async function rankToTop(item: WorkItem): Promise<void> {
+  rankSeq -= 1;
+  const next = new Map(rankOverrides.value);
+  next.set(item._id, rankSeq);
+  rankOverrides.value = next;
+  items.value = [...items.value].sort((a, b) => {
+    const ra = rankOverrides.value.get(a._id);
+    const rb = rankOverrides.value.get(b._id);
+    if (ra === undefined && rb === undefined) return 0;
+    if (ra === undefined) return 1;
+    if (rb === undefined) return -1;
+    return ra - rb;
+  });
+}
+
+async function rankToBottom(item: WorkItem): Promise<void> {
+  rankSeq += 1;
+  const next = new Map(rankOverrides.value);
+  next.set(item._id, 1_000_000 + rankSeq);
+  rankOverrides.value = next;
+  items.value = [...items.value].sort((a, b) => {
+    const ra = rankOverrides.value.get(a._id);
+    const rb = rankOverrides.value.get(b._id);
+    if (ra === undefined && rb === undefined) return 0;
+    if (ra === undefined) return 1;
+    if (rb === undefined) return -1;
+    return ra - rb;
+  });
+}
+
+async function deleteRow(item: WorkItem): Promise<void> {
+  const ok = window.confirm(`Delete "${item.title}"? This cannot be undone.`);
+  if (!ok) return;
+  try {
+    await workItemService.deleteWorkItem(item._id);
+    await fetchPage();
+    void reloadTasks();
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      loadError.value =
+        (err.response?.data as { message?: string } | undefined)?.message ??
+        "Failed to delete work item.";
+    } else {
+      loadError.value = "Failed to delete work item.";
+    }
+  }
+}
+
+async function copyLink(item: WorkItem): Promise<void> {
+  const url = `${window.location.origin}/app/work-items/${item._id}`;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    window.prompt("Copy link:", url);
+  }
+}
+
+// --- Column resize (drag handle on the right of <th>) ---
+const resizing = ref<ColumnKey | null>(null);
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+
+function startResize(e: MouseEvent, key: ColumnKey): void {
+  if (FIXED_WIDTH_COLUMNS.has(key)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  resizing.value = key;
+  resizeStartX = e.clientX;
+  resizeStartWidth = columnWidths.value[key];
+  window.addEventListener("mousemove", onResizeMove);
+  window.addEventListener("mouseup", endResize);
+}
+
+function onResizeMove(e: MouseEvent): void {
+  const key = resizing.value;
+  if (!key) return;
+  const def = COLUMNS.find((c) => c.key === key);
+  if (!def) return;
+  const next = Math.max(
+    def.minWidth,
+    resizeStartWidth + (e.clientX - resizeStartX),
+  );
+  columnWidths.value = { ...columnWidths.value, [key]: next };
+}
+
+function endResize(): void {
+  resizing.value = null;
+  window.removeEventListener("mousemove", onResizeMove);
+  window.removeEventListener("mouseup", endResize);
+}
+
+onUnmounted(() => {
+  window.removeEventListener("mousemove", onResizeMove);
+  window.removeEventListener("mouseup", endResize);
+});
+
+// Programmatic resize (from header menu): nudge width by +40px
+function nudgeWidth(key: ColumnKey): void {
+  if (FIXED_WIDTH_COLUMNS.has(key)) return;
+  const def = COLUMNS.find((c) => c.key === key);
+  if (!def) return;
+  columnWidths.value = {
+    ...columnWidths.value,
+    [key]: columnWidths.value[key] + 40,
+  };
+}
+
+function toggleFreeze(key: ColumnKey): void {
+  if (key !== "summary") return;
+  summaryFrozen.value = !summaryFrozen.value;
+}
+
+// --- Row selection (visual-only) ---
+const selectedRows = ref<Set<string>>(new Set());
+
+function isRowSelected(id: string): boolean {
+  return selectedRows.value.has(id);
+}
+
+function toggleRow(id: string, value: boolean | "indeterminate"): void {
+  const next = new Set(selectedRows.value);
+  if (value === true) next.add(id);
+  else next.delete(id);
+  selectedRows.value = next;
+}
+
+const pageSelectionState = computed<boolean | "indeterminate">(() => {
+  if (flatRows.value.length === 0) return false;
+  let selected = 0;
+  for (const r of flatRows.value) {
+    if (selectedRows.value.has(r.item._id)) selected++;
+  }
+  if (selected === 0) return false;
+  if (selected === flatRows.value.length) return true;
+  return "indeterminate";
+});
+
+function togglePageSelection(value: boolean | "indeterminate"): void {
+  const next = new Set(selectedRows.value);
+  if (value === true) {
+    for (const r of flatRows.value) next.add(r.item._id);
+  } else {
+    for (const r of flatRows.value) next.delete(r.item._id);
+  }
+  selectedRows.value = next;
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <!-- New table toolbar header -->
+    <!-- Toolbar header -->
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2 flex-1 min-w-64">
         <div class="relative flex-1 max-w-sm">
@@ -442,30 +769,104 @@ function notImplemented(label: string): void {
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
-        <!-- Member avatars -->
+        <!-- Clickable member avatars (multi-select filter by assignee) -->
         <div
-          v-if="visibleMembers.length"
-          class="flex items-center -space-x-1.5"
-          aria-label="Project members"
+          class="flex items-center -space-x-2"
+          aria-label="Filter by assignee (multi-select)"
         >
-          <Avatar
+          <button
+            type="button"
+            class="relative size-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
+            :class="
+              isAssigneeSelected('none')
+                ? 'ring-primary z-10'
+                : 'ring-background'
+            "
+            title="Filter: Unassigned"
+            @click="selectAssignee('none')"
+          >
+            <VsxIcon iconName="User" class="size-4" />
+          </button>
+          <button
             v-for="u in visibleMembers"
             :key="u._id"
-            class="size-7 ring-2 ring-background"
-            :title="u.name"
+            type="button"
+            class="relative rounded-full transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
+            :class="
+              isAssigneeSelected(u._id)
+                ? 'ring-primary z-10'
+                : 'ring-background'
+            "
+            :title="`Filter: ${u.name}`"
+            @click="selectAssignee(u._id)"
           >
-            <AvatarFallback class="text-[10px]">
-              {{ userStore.initials(u._id) }}
-            </AvatarFallback>
-          </Avatar>
+            <Avatar class="size-8">
+              <AvatarFallback class="text-[10px]">
+                {{ userStore.initials(u._id) }}
+              </AvatarFallback>
+            </Avatar>
+          </button>
           <span
             v-if="extraMembers > 0"
-            class="size-7 ring-2 ring-background rounded-full bg-muted text-[10px] flex items-center justify-center text-muted-foreground"
+            class="size-8 ring-2 ring-background rounded-full bg-muted text-[11px] flex items-center justify-center text-muted-foreground"
             :title="`${extraMembers} more`"
           >
             +{{ extraMembers }}
           </span>
         </div>
+
+        <!-- Columns visibility dropdown -->
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="outline" size="sm" class="gap-1.5">
+              <VsxIcon iconName="RowVertical" class="size-4" />
+              <span>Columns</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            class="min-w-52 max-h-80 overflow-y-auto"
+          >
+            <DropdownMenuLabel>Show columns</DropdownMenuLabel>
+            <div
+              v-for="col in COLUMNS.filter(
+                (c) => c.label && c.key !== 'select',
+              )"
+              :key="`col-${col.key}`"
+              class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none"
+              :class="
+                col.key === 'summary'
+                  ? 'opacity-50 pointer-events-none'
+                  : 'cursor-pointer hover:bg-accent'
+              "
+              @click="toggleColumn(col.key)"
+            >
+              <span>{{ col.label }}</span>
+              <Switch
+                tabindex="-1"
+                :model-value="visibleColumns[col.key]"
+                :disabled="col.key === 'summary'"
+                class="pointer-events-none"
+              />
+            </div>
+            <div
+              class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none cursor-pointer hover:bg-accent"
+              @click="toggleColumn('actions')"
+            >
+              <span>Actions</span>
+              <Switch
+                tabindex="-1"
+                :model-value="visibleColumns.actions"
+                class="pointer-events-none"
+              />
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem @select="resetColumns">
+              <VsxIcon iconName="Refresh" class="size-4" />
+              <span>Reset columns</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <!-- Filter dropdown -->
         <DropdownMenu>
@@ -481,7 +882,10 @@ function notImplemented(label: string): void {
               </span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" class="min-w-56">
+          <DropdownMenuContent
+            align="end"
+            class="min-w-56 max-h-96 overflow-y-auto"
+          >
             <DropdownMenuLabel>Type</DropdownMenuLabel>
             <DropdownMenuItem
               v-for="opt in TYPE_OPTIONS"
@@ -565,27 +969,36 @@ function notImplemented(label: string): void {
               <VsxIcon iconName="More" class="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" class="min-w-56">
-            <DropdownMenuItem @select="hideDone = !hideDone">
-              <VsxIcon
-                iconName="TickSquare"
-                class="size-4"
-                :class="hideDone ? 'text-primary' : 'opacity-50'"
-              />
+          <DropdownMenuContent
+            align="end"
+            class="min-w-60 max-h-96 overflow-y-auto"
+          >
+            <div
+              class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none cursor-pointer hover:bg-accent"
+              @click="hideDone = !hideDone"
+            >
               <span>{{
                 hideDone ? "Show done work items" : "Hide done work items"
               }}</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem @select="showHierarchy = !showHierarchy">
-              <VsxIcon
-                iconName="Hierarchy"
-                class="size-4"
-                :class="showHierarchy ? 'text-primary' : 'opacity-50'"
+              <Switch
+                tabindex="-1"
+                :model-value="hideDone"
+                class="pointer-events-none"
               />
+            </div>
+            <div
+              class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none cursor-pointer hover:bg-accent"
+              @click="showHierarchy = !showHierarchy"
+            >
               <span>{{
                 showHierarchy ? "Hide hierarchy" : "Show hierarchy"
               }}</span>
-            </DropdownMenuItem>
+              <Switch
+                tabindex="-1"
+                :model-value="showHierarchy"
+                class="pointer-events-none"
+              />
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Export</DropdownMenuLabel>
             <DropdownMenuItem @select="exportAs('csv')">
@@ -655,6 +1068,19 @@ function notImplemented(label: string): void {
           <VsxIcon iconName="CloseCircle" class="size-3" />
         </button>
       </span>
+      <span
+        v-if="assigneeFilter.size > 0"
+        class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
+      >
+        Assignee: {{ assigneeFilterLabel }}
+        <button
+          type="button"
+          class="hover:text-destructive"
+          @click="clearAssigneeFilter"
+        >
+          <VsxIcon iconName="CloseCircle" class="size-3" />
+        </button>
+      </span>
     </div>
 
     <p v-if="loadError || tasksError" class="text-sm text-destructive">
@@ -682,33 +1108,141 @@ function notImplemented(label: string): void {
     </div>
 
     <div v-else class="rounded-lg border bg-card overflow-x-auto">
-      <table class="w-full text-sm border-collapse">
+      <table class="w-full text-sm border-collapse table-fixed">
+        <colgroup>
+          <col
+            v-for="col in activeColumns"
+            :key="`cg-${col.key}`"
+            :style="{ width: `${colWidth(col.key)}px` }"
+          />
+        </colgroup>
+
         <thead class="bg-muted/40 text-muted-foreground">
           <tr>
             <th
-              class="text-left font-medium px-4 py-2 border-r last:border-r-0"
+              v-for="col in activeColumns"
+              :key="`th-${col.key}`"
+              class="group/th relative text-left font-medium px-4 py-2 border-r last:border-r-0 whitespace-nowrap"
+              :class="[
+                col.key === 'select' ? 'sticky left-0 z-20 bg-muted w-10' : '',
+                col.key === 'summary' && summaryFrozen
+                  ? 'sticky z-20 bg-muted/80 backdrop-blur'
+                  : '',
+                col.key === 'actions'
+                  ? 'sticky right-0 z-20 bg-muted/80 backdrop-blur'
+                  : '',
+              ]"
+              :style="
+                col.key === 'summary' && summaryFrozen
+                  ? { left: `${colWidth('select')}px` }
+                  : undefined
+              "
             >
-              Summary
-            </th>
-            <th
-              class="text-left font-medium px-4 py-2 border-r last:border-r-0"
-            >
-              State
-            </th>
-            <th
-              class="text-left font-medium px-4 py-2 border-r last:border-r-0"
-            >
-              Priority
-            </th>
-            <th
-              class="text-left font-medium px-4 py-2 border-r last:border-r-0"
-            >
-              Assignee
-            </th>
-            <th
-              class="text-left font-medium px-4 py-2 whitespace-nowrap border-r last:border-r-0"
-            >
-              Updated
+              <!-- Select column header: page-level checkbox -->
+              <div
+                v-if="col.key === 'select'"
+                class="flex items-center justify-center"
+                @click.stop
+              >
+                <Checkbox
+                  :model-value="pageSelectionState"
+                  aria-label="Select all rows on this page"
+                  @update:model-value="togglePageSelection"
+                />
+              </div>
+
+              <!-- Action column header: blank (no menu) -->
+              <div v-else-if="col.key === 'actions'" class="sr-only">
+                Actions
+              </div>
+
+              <!-- Standard column header -->
+              <div v-else class="flex items-center justify-between gap-2">
+                <span class="inline-flex items-center gap-1">
+                  {{ col.label }}
+                  <VsxIcon
+                    v-if="col.sortBy && sortBy === col.sortBy"
+                    :iconName="sortDir === 'asc' ? 'ArrowUp2' : 'ArrowDown2'"
+                    class="size-3.5 text-primary"
+                  />
+                </span>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <button
+                      type="button"
+                      class="opacity-0 group-hover/th:opacity-100 data-[state=open]:opacity-100 inline-flex items-center justify-center size-5 rounded hover:bg-accent transition-opacity"
+                      :aria-label="`${col.label} options`"
+                    >
+                      <VsxIcon iconName="More" class="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    class="min-w-48 max-h-80 overflow-y-auto"
+                  >
+                    <DropdownMenuLabel>{{ col.label }}</DropdownMenuLabel>
+                    <DropdownMenuItem
+                      v-if="col.sortBy"
+                      @select="setSort(col.sortBy!)"
+                    >
+                      <VsxIcon
+                        :iconName="
+                          sortBy === col.sortBy && sortDir === 'asc'
+                            ? 'ArrowDown2'
+                            : 'ArrowUp2'
+                        "
+                        class="size-4"
+                      />
+                      <span>
+                        {{
+                          sortBy === col.sortBy
+                            ? sortDir === "asc"
+                              ? "Sort descending"
+                              : "Sort ascending"
+                            : "Sort by this column"
+                        }}
+                      </span>
+                    </DropdownMenuItem>
+                    <!-- Only Summary can be frozen by the user -->
+                    <DropdownMenuItem
+                      v-if="col.key === 'summary'"
+                      @select="toggleFreeze('summary')"
+                    >
+                      <VsxIcon
+                        iconName="Lock1"
+                        class="size-4"
+                        :class="summaryFrozen ? 'text-primary' : ''"
+                      />
+                      <span>
+                        {{
+                          summaryFrozen ? "Unfreeze column" : "Freeze column"
+                        }}
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="nudgeWidth(col.key)">
+                      <VsxIcon iconName="Maximize" class="size-4" />
+                      <span>Resize column (+40px)</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      :disabled="col.key === 'summary'"
+                      @select="toggleColumn(col.key)"
+                    >
+                      <VsxIcon iconName="EyeSlash" class="size-4" />
+                      <span>Hide column</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <!-- Drag handle for resize (skip for select + actions) -->
+              <span
+                v-if="col.key !== 'actions' && col.key !== 'select'"
+                class="absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none hover:bg-primary/40"
+                :class="resizing === col.key ? 'bg-primary/60' : ''"
+                @mousedown="startResize($event, col.key)"
+              />
             </th>
           </tr>
         </thead>
@@ -716,153 +1250,268 @@ function notImplemented(label: string): void {
           <tr
             v-for="row in flatRows"
             :key="row.item._id"
-            class="border-t cursor-pointer hover:bg-accent/40 h-13"
+            class="border-t cursor-pointer h-13"
+            :class="
+              isRowSelected(row.item._id)
+                ? 'bg-primary/5 hover:bg-primary/10'
+                : 'hover:bg-accent/40'
+            "
             @click="openItem(row.item._id)"
           >
-            <td class="p-0 align-middle h-13 max-w-56 border-r last:border-r-0">
-              <div
-                class="relative flex items-center h-13 pr-2"
-                :style="{ paddingLeft: `${row.depth * 32}px` }"
+            <template
+              v-for="col in activeColumns"
+              :key="`td-${col.key}-${row.item._id}`"
+            >
+              <td
+                v-if="col.key === 'select'"
+                class="p-0 align-middle h-13 border-r last:border-r-0 text-center sticky left-0 z-10"
+                :class="
+                  isRowSelected(row.item._id) ? 'bg-primary/5' : 'bg-card'
+                "
+                @click.stop
               >
-                <svg
-                  v-if="row.depth > 0 || (row.expanded && row.hasChildren)"
-                  :width="row.depth * 32 + 32"
-                  :height="56"
-                  class="absolute left-0 top-0 text-border pointer-events-none overflow-visible pl-5"
+                <div class="flex items-center justify-center">
+                  <Checkbox
+                    :model-value="isRowSelected(row.item._id)"
+                    :aria-label="`Select ${row.item.title}`"
+                    @update:model-value="toggleRow(row.item._id, $event)"
+                  />
+                </div>
+              </td>
+
+              <td
+                v-else-if="col.key === 'summary'"
+                class="p-0 align-middle h-13 border-r last:border-r-0"
+                :class="
+                  summaryFrozen
+                    ? isRowSelected(row.item._id)
+                      ? 'sticky z-10 bg-primary/5'
+                      : 'sticky z-10 bg-card'
+                    : ''
+                "
+                :style="
+                  summaryFrozen
+                    ? { left: `${colWidth('select')}px` }
+                    : undefined
+                "
+              >
+                <div
+                  class="relative flex items-center h-13 pr-2"
+                  :style="{ paddingLeft: `${row.depth * 32}px` }"
                 >
-                  <template v-if="row.depth > 0">
-                    <template
-                      v-for="(hasLine, i) in row.ancestorLines.slice(1)"
-                      :key="`a-${i}`"
-                    >
+                  <svg
+                    v-if="row.depth > 0 || (row.expanded && row.hasChildren)"
+                    :width="row.depth * 32 + 32"
+                    :height="56"
+                    class="absolute left-0 top-0 text-border pointer-events-none overflow-visible pl-5"
+                  >
+                    <template v-if="row.depth > 0">
+                      <template
+                        v-for="(hasLine, i) in row.ancestorLines.slice(1)"
+                        :key="`a-${i}`"
+                      >
+                        <line
+                          v-if="hasLine"
+                          :x1="i * 32 + 16"
+                          :y1="0"
+                          :x2="i * 32 + 16"
+                          :y2="56"
+                          stroke="currentColor"
+                          stroke-width="1"
+                        />
+                      </template>
+                      <path
+                        :d="`M ${(row.depth - 1) * 32 + 16} 0 L ${(row.depth - 1) * 32 + 16} 8 Q ${(row.depth - 1) * 32 + 16} 24, ${row.depth * 32} 24 L ${row.depth * 32 + 4} 24`"
+                        stroke="currentColor"
+                        stroke-width="1"
+                        fill="none"
+                        stroke-linecap="round"
+                      />
                       <line
-                        v-if="hasLine"
-                        :x1="i * 32 + 16"
-                        :y1="0"
-                        :x2="i * 32 + 16"
+                        v-if="!row.isLastChild"
+                        :x1="(row.depth - 1) * 32 + 16"
+                        :y1="14"
+                        :x2="(row.depth - 1) * 32 + 16"
                         :y2="56"
                         stroke="currentColor"
                         stroke-width="1"
                       />
                     </template>
-                    <path
-                      :d="`M ${(row.depth - 1) * 32 + 16} 0 L ${(row.depth - 1) * 32 + 16} 8 Q ${(row.depth - 1) * 32 + 16} 24, ${row.depth * 32} 24 L ${row.depth * 32 + 4} 24`"
-                      stroke="currentColor"
-                      stroke-width="1"
-                      fill="none"
-                      stroke-linecap="round"
-                    />
                     <line
-                      v-if="!row.isLastChild"
-                      :x1="(row.depth - 1) * 32 + 16"
-                      :y1="14"
-                      :x2="(row.depth - 1) * 32 + 16"
+                      v-if="row.expanded && row.hasChildren"
+                      :x1="row.depth * 32 + 16"
+                      :y1="24"
+                      :x2="row.depth * 32 + 16"
                       :y2="56"
                       stroke="currentColor"
                       stroke-width="1"
                     />
-                  </template>
-                  <line
-                    v-if="row.expanded && row.hasChildren"
-                    :x1="row.depth * 32 + 16"
-                    :y1="24"
-                    :x2="row.depth * 32 + 16"
-                    :y2="56"
-                    stroke="currentColor"
-                    stroke-width="1"
-                  />
-                </svg>
-                <button
-                  v-if="row.hasChildren"
-                  type="button"
-                  class="relative cursor-pointer ml-6 inline-flex items-center justify-center size-6 rounded hover:bg-accent border bg-card text-muted-foreground"
-                  :aria-label="row.expanded ? 'Collapse' : 'Expand'"
-                  @click.stop="toggleExpand(row.item._id)"
-                >
-                  <VsxIcon
-                    iconName="ArrowRight2"
-                    class="size-3.5 transition-transform"
-                    :class="row.expanded ? 'rotate-90' : ''"
-                  />
-                </button>
-                <span v-else class="inline-block size-6"></span>
-                <span
-                  class="inline-flex items-center gap-2 min-w-0"
-                  :class="
-                    showHierarchy &&
-                    ((row.hasChildren && 'ml-3') ||
-                      (row.item.parentId && 'ml-2'))
-                  "
-                >
-                  <VsxIcon
-                    :iconName="TYPE_META[row.item.type].icon"
-                    class="size-5 shrink-0"
-                    :class="TYPE_META[row.item.type].text"
-                  />
-                  <span class="flex flex-col min-w-0 leading-tight">
-                    <span class="truncate">{{ row.item.title }}</span>
-                    <span
-                      class="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground"
-                    >
-                      <span class="font-mono text-muted-foreground">{{
-                        row.item.key
-                      }}</span>
-                      <template v-if="itemComponents(row.item).length">
-                        <span aria-hidden="true">·</span>
-                        <span
-                          v-for="c in itemComponents(row.item)"
-                          :key="c._id"
-                          class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
-                        >
-                          {{ c.name }}
-                        </span>
-                      </template>
+                  </svg>
+                  <button
+                    v-if="row.hasChildren"
+                    type="button"
+                    class="relative cursor-pointer ml-6 inline-flex items-center justify-center size-6 rounded hover:bg-accent border bg-card text-muted-foreground"
+                    :aria-label="row.expanded ? 'Collapse' : 'Expand'"
+                    @click.stop="toggleExpand(row.item._id)"
+                  >
+                    <VsxIcon
+                      iconName="ArrowRight2"
+                      class="size-3.5 transition-transform"
+                      :class="row.expanded ? 'rotate-90' : ''"
+                    />
+                  </button>
+                  <span v-else class="inline-block size-6"></span>
+                  <span
+                    class="inline-flex items-center gap-2 min-w-0"
+                    :class="
+                      showHierarchy &&
+                      ((row.hasChildren && 'ml-3') ||
+                        (row.item.parentId && 'ml-2'))
+                    "
+                  >
+                    <VsxIcon
+                      :iconName="TYPE_META[row.item.type].icon"
+                      class="size-5 shrink-0"
+                      :class="TYPE_META[row.item.type].text"
+                    />
+                    <span class="flex flex-col min-w-0 leading-tight">
+                      <span class="truncate">{{ row.item.title }}</span>
+                      <span
+                        class="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground"
+                      >
+                        <span class="font-mono text-muted-foreground">{{
+                          row.item.key
+                        }}</span>
+                        <template v-if="itemComponents(row.item).length">
+                          <span aria-hidden="true">·</span>
+                          <span
+                            v-for="c in itemComponents(row.item)"
+                            :key="c._id"
+                            class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+                          >
+                            {{ c.name }}
+                          </span>
+                        </template>
+                      </span>
                     </span>
                   </span>
-                </span>
-              </div>
-            </td>
+                </div>
+              </td>
 
-            <td class="px-4 py-2.5 border-r last:border-r-0">
-              <span
-                :class="[
-                  'inline-block rounded px-2 py-0.5 text-xs',
-                  STATE_BADGE[row.item.state],
-                ]"
+              <td
+                v-else-if="col.key === 'state'"
+                class="px-4 py-2.5 border-r last:border-r-0"
               >
-                {{ STATE_LABELS[row.item.state] }}
-              </span>
-            </td>
-            <td class="px-4 py-2.5 border-r last:border-r-0">
-              <span
-                :class="[
-                  'inline-block rounded px-2 py-0.5 text-xs capitalize',
-                  PRIORITY_BADGE[row.item.priority],
-                ]"
-              >
-                {{ row.item.priority }}
-              </span>
-            </td>
-            <td class="px-4 py-2.5 border-r last:border-r-0">
-              <div v-if="row.item.assigneeId" class="flex items-center gap-2">
-                <Avatar class="size-6">
-                  <AvatarFallback class="text-[10px]">
-                    {{ memberInitials(row.item.assigneeId) }}
-                  </AvatarFallback>
-                </Avatar>
-                <span class="text-xs truncate">
-                  {{ memberName(row.item.assigneeId) }}
+                <span
+                  :class="[
+                    'inline-block rounded px-2 py-0.5 text-xs',
+                    STATE_BADGE[row.item.state],
+                  ]"
+                >
+                  {{ STATE_LABELS[row.item.state] }}
                 </span>
-              </div>
-              <span v-else class="text-xs text-muted-foreground">
-                Unassigned
-              </span>
-            </td>
-            <td
-              class="px-4 py-2.5 whitespace-nowrap text-xs text-muted-foreground border-r last:border-r-0"
-            >
-              {{ formatDateTime(row.item.updatedAt) }}
-            </td>
+              </td>
+
+              <td
+                v-else-if="col.key === 'priority'"
+                class="px-4 py-2.5 border-r last:border-r-0"
+              >
+                <span
+                  :class="[
+                    'inline-block rounded px-2 py-0.5 text-xs capitalize',
+                    PRIORITY_BADGE[row.item.priority],
+                  ]"
+                >
+                  {{ row.item.priority }}
+                </span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'assignee'"
+                class="px-4 py-2.5 border-r last:border-r-0"
+              >
+                <div
+                  v-if="row.item.assigneeId"
+                  class="flex items-center gap-2 min-w-0"
+                >
+                  <Avatar class="size-6 shrink-0">
+                    <AvatarFallback class="text-[10px]">
+                      {{ memberInitials(row.item.assigneeId) }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span class="text-xs truncate">
+                    {{ memberName(row.item.assigneeId) }}
+                  </span>
+                </div>
+                <span v-else class="text-xs text-muted-foreground">
+                  Unassigned
+                </span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'updated'"
+                class="px-4 py-2.5 whitespace-nowrap text-xs text-muted-foreground border-r last:border-r-0"
+              >
+                {{ formatDateTime(row.item.updatedAt) }}
+              </td>
+
+              <td
+                v-else-if="col.key === 'actions'"
+                class="px-2 py-2.5 border-r last:border-r-0 text-center sticky right-0 z-10"
+                :class="
+                  isRowSelected(row.item._id) ? 'bg-primary/5' : 'bg-card'
+                "
+                @click.stop
+              >
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center size-7 rounded hover:bg-accent text-muted-foreground"
+                      :aria-label="`Actions for ${row.item.title}`"
+                    >
+                      <VsxIcon iconName="More" class="size-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    class="min-w-52 max-h-96 overflow-y-auto"
+                  >
+                    <DropdownMenuItem @select="openItem(row.item._id)">
+                      <VsxIcon iconName="Eye" class="size-4" />
+                      <span>View work item</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="rankToTop(row.item)">
+                      <VsxIcon iconName="ArrowUp2" class="size-4" />
+                      <span>Rank to top</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="rankToBottom(row.item)">
+                      <VsxIcon iconName="ArrowDown2" class="size-4" />
+                      <span>Rank to bottom</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="copyLink(row.item)">
+                      <VsxIcon iconName="Link" class="size-4" />
+                      <span>Copy link</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      v-if="row.item.assigneeId"
+                      @select="selectAssignee(row.item.assigneeId!)"
+                    >
+                      <VsxIcon iconName="UserSearch" class="size-4" />
+                      <span>Filter by assignee</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      @select="deleteRow(row.item)"
+                    >
+                      <VsxIcon iconName="Trash" class="size-4" />
+                      <span>Delete</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>
