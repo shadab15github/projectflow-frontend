@@ -223,7 +223,7 @@ const priorityFilter = ref<WorkItemPriority | "ALL">("ALL");
 const assigneeFilter = ref<Set<string>>(new Set());
 
 const hideDone = ref(false);
-const showHierarchy = ref(false);
+const showHierarchy = ref(true);
 const expandedIds = ref<Set<string>>(new Set());
 
 // --- Sorting state ---
@@ -1108,7 +1108,9 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
     </div>
 
     <div v-else class="rounded-lg border bg-card overflow-x-auto">
-      <table class="w-full text-sm border-collapse table-fixed">
+      <table
+        class="w-full text-sm border-separate border-spacing-0 table-fixed"
+      >
         <colgroup>
           <col
             v-for="col in activeColumns"
@@ -1124,12 +1126,12 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
               :key="`th-${col.key}`"
               class="group/th relative text-left font-medium px-4 py-2 border-r last:border-r-0 whitespace-nowrap"
               :class="[
-                col.key === 'select' ? 'sticky left-0 z-20 bg-muted w-10' : '',
+                col.key === 'select' ? 'sticky left-0 z-20 bg-[#f6f6f6] ' : '',
                 col.key === 'summary' && summaryFrozen
-                  ? 'sticky z-20 bg-muted/80 backdrop-blur'
+                  ? 'sticky z-20 bg-[#f6f6f6]'
                   : '',
                 col.key === 'actions'
-                  ? 'sticky right-0 z-20 bg-muted/80 backdrop-blur'
+                  ? 'sticky right-0 z-20 bg-[#f6f6f6] [box-shadow:-1px_0_0_var(--border)]'
                   : '',
               ]"
               :style="
@@ -1250,7 +1252,7 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
           <tr
             v-for="row in flatRows"
             :key="row.item._id"
-            class="border-t cursor-pointer h-13"
+            class="cursor-pointer h-13 [&>td]:border-t"
             :class="
               isRowSelected(row.item._id)
                 ? 'bg-primary/5 hover:bg-primary/10'
@@ -1286,7 +1288,7 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
                   summaryFrozen
                     ? isRowSelected(row.item._id)
                       ? 'sticky z-10 bg-primary/5'
-                      : 'sticky z-10 bg-card'
+                      : 'sticky z-10 bg-card '
                     : ''
                 "
                 :style="
@@ -1457,7 +1459,7 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
 
               <td
                 v-else-if="col.key === 'actions'"
-                class="px-2 py-2.5 border-r last:border-r-0 text-center sticky right-0 z-10"
+                class="px-2 py-2.5 border-r last:border-r-0 text-center sticky right-0 z-10 [box-shadow:-1px_0_0_var(--border)]"
                 :class="
                   isRowSelected(row.item._id) ? 'bg-primary/5' : 'bg-card'
                 "
