@@ -1492,8 +1492,7 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
                     class="inline-flex items-center gap-2 min-w-0"
                     :class="
                       showHierarchy &&
-                      ((row.hasChildren && 'ml-3') ||
-                        (row.item.parentId && 'ml-2'))
+                      ((row.hasChildren && 'ml-3') || (row.depth > 0 && 'ml-2'))
                     "
                   >
                     <VsxIcon
@@ -1660,10 +1659,7 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
                 v-else-if="col.key === 'sprint'"
                 class="px-4 py-2.5 border-r last:border-r-0 whitespace-nowrap"
               >
-                <span
-                  v-if="row.item.sprintId"
-                  class="text-xs truncate"
-                >
+                <span v-if="row.item.sprintId" class="text-xs truncate">
                   {{ sprintName(row.item.sprintId) }}
                 </span>
                 <span v-else class="text-xs text-muted-foreground">—</span>
