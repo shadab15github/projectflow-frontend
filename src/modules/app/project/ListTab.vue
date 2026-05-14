@@ -121,7 +121,7 @@ interface ColumnDef {
 const FIXED_WIDTH_COLUMNS = new Set<ColumnKey>(["select", "actions"]);
 
 const COLUMNS: ColumnDef[] = [
-  { key: "select", label: "", defaultWidth: 44, minWidth: 44 },
+  { key: "select", label: "", defaultWidth: 52, minWidth: 52 },
   {
     key: "summary",
     label: "Summary",
@@ -151,7 +151,7 @@ const COLUMNS: ColumnDef[] = [
     defaultWidth: 180,
     minWidth: 140,
   },
-  { key: "actions", label: "", defaultWidth: 56, minWidth: 56 },
+  { key: "actions", label: "", defaultWidth: 64, minWidth: 64 },
 ];
 
 const visibleColumns = ref<Record<ColumnKey, boolean>>({
@@ -178,6 +178,34 @@ const summaryFrozen = ref(false);
 const activeColumns = computed<ColumnDef[]>(() =>
   COLUMNS.filter((c) => visibleColumns.value[c.key]),
 );
+
+// The rightmost visible non-actions column. Its <col> renders with no
+// explicit width so table-layout: fixed gives it the leftover space — this
+// keeps the fixed-width columns (select / actions) at their declared widths
+// without needing a visible spacer column.
+const stretchKey = computed<ColumnKey | null>(() => {
+  for (let i = activeColumns.value.length - 1; i >= 0; i--) {
+    const c = activeColumns.value[i];
+    if (c.key !== "actions") return c.key;
+  }
+  return null;
+});
+
+// Sum of every visible column's declared width (using the stretch column's
+// minWidth for its floor). Applied as min-width on the table so the wrapper
+// scrolls horizontally when this exceeds the container width, instead of
+// the table being squashed by width: 100%.
+const tableMinWidth = computed<number>(() => {
+  let total = 0;
+  for (const col of activeColumns.value) {
+    if (col.key === stretchKey.value) {
+      total += col.minWidth;
+    } else {
+      total += colWidth(col.key);
+    }
+  }
+  return total;
+});
 
 function colWidth(key: ColumnKey): number {
   if (FIXED_WIDTH_COLUMNS.has(key)) {
@@ -241,7 +269,7 @@ function setSort(field: WorkItemSortBy): void {
 
 // --- Pagination state ---
 const page = ref(1);
-const limit = ref(10);
+const limit = ref(25);
 const total = ref(0);
 const totalPages = computed(() =>
   total.value === 0 ? 1 : Math.ceil(total.value / limit.value),
@@ -750,9 +778,9 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-3 h-full">
     <!-- Toolbar header -->
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="shrink-0 flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2 flex-1 min-w-64">
         <div class="relative flex-1 max-w-sm">
           <VsxIcon
@@ -1026,7 +1054,7 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
     <!-- Active filter chips -->
     <div
       v-if="activeFilterCount > 0"
-      class="flex flex-wrap items-center gap-1.5 text-xs"
+      class="shrink-0 flex flex-wrap items-center gap-1.5 text-xs"
     >
       <span class="text-muted-foreground">Filters:</span>
       <span
@@ -1107,32 +1135,35 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
       </p>
     </div>
 
-    <div v-else class="rounded-lg border bg-card overflow-x-auto">
+    <div v-else class="flex-1 min-h-0 rounded-lg border bg-card overflow-auto">
       <table
-        class="w-full text-sm border-separate border-spacing-0 table-fixed"
+        class="w-full h-full text-sm border-separate border-spacing-0 table-fixed"
+        :style="{ minWidth: `${tableMinWidth}px` }"
       >
         <colgroup>
           <col
             v-for="col in activeColumns"
             :key="`cg-${col.key}`"
-            :style="{ width: `${colWidth(col.key)}px` }"
+            :style="
+              col.key === stretchKey
+                ? undefined
+                : { width: `${colWidth(col.key)}px` }
+            "
           />
         </colgroup>
 
-        <thead class="bg-muted/40 text-muted-foreground">
+        <thead class="text-muted-foreground">
           <tr>
             <th
               v-for="col in activeColumns"
               :key="`th-${col.key}`"
-              class="group/th relative text-left font-medium px-4 py-2 border-r last:border-r-0 whitespace-nowrap"
+              class="group/th sticky top-0 z-10 bg-[#f6f6f6] text-left font-medium px-4 py-2 border-r last:border-r-0 whitespace-nowrap"
               :class="[
-                col.key === 'select' ? 'sticky left-0 z-20 bg-[#f6f6f6] ' : '',
-                col.key === 'summary' && summaryFrozen
-                  ? 'sticky z-20 bg-[#f6f6f6]'
-                  : '',
+                col.key === 'select' ? 'left-0 z-20' : '',
+                col.key === 'summary' && summaryFrozen ? 'z-20' : '',
                 col.key === 'actions'
-                  ? 'sticky right-0 z-20 bg-[#f6f6f6] [box-shadow:-1px_0_0_var(--border)]'
-                  : '',
+                  ? 'right-0 z-20 [box-shadow:-1px_0_0_var(--border),0_1px_0_var(--border)]'
+                  : '[box-shadow:0_1px_0_var(--border)]',
               ]"
               :style="
                 col.key === 'summary' && summaryFrozen
@@ -1238,9 +1269,15 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
                 </DropdownMenu>
               </div>
 
-              <!-- Drag handle for resize (skip for select + actions) -->
+              <!-- Drag handle for resize. Skipped for fixed columns and for
+                   the stretch column (which auto-sizes to the leftover width
+                   and would ignore any user-set width). -->
               <span
-                v-if="col.key !== 'actions' && col.key !== 'select'"
+                v-if="
+                  col.key !== 'actions' &&
+                  col.key !== 'select' &&
+                  col.key !== stretchKey
+                "
                 class="absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none hover:bg-primary/40"
                 :class="resizing === col.key ? 'bg-primary/60' : ''"
                 @mousedown="startResize($event, col.key)"
@@ -1515,6 +1552,28 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
               </td>
             </template>
           </tr>
+
+          <!-- Filler row: stretches to fill remaining vertical space so each
+               column's right border extends to the bottom of the table. -->
+          <tr aria-hidden="true" class="h-full pointer-events-none">
+            <td
+              v-for="col in activeColumns"
+              :key="`filler-${col.key}`"
+              class="border-t border-r last:border-r-0 bg-card"
+              :class="[
+                col.key === 'select' ? 'sticky left-0 z-10' : '',
+                col.key === 'summary' && summaryFrozen ? 'sticky z-10' : '',
+                col.key === 'actions'
+                  ? 'sticky right-0 z-10 [box-shadow:-1px_0_0_var(--border)]'
+                  : '',
+              ]"
+              :style="
+                col.key === 'summary' && summaryFrozen
+                  ? { left: `${colWidth('select')}px` }
+                  : undefined
+              "
+            />
+          </tr>
         </tbody>
       </table>
     </div>
@@ -1522,7 +1581,7 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
     <!-- Pagination -->
     <div
       v-if="total > 0"
-      class="flex flex-wrap items-center justify-between gap-3 px-1 pt-1"
+      class="shrink-0 flex flex-wrap items-center justify-between gap-3 px-1 pt-1"
     >
       <p class="text-xs text-muted-foreground">
         Showing {{ showingFrom }}–{{ showingTo }} of {{ total }}

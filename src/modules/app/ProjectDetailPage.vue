@@ -174,7 +174,7 @@ provide(projectContextKey, {
 </script>
 
 <template>
-  <section class="flex flex-col">
+  <section class="flex flex-col h-full overflow-hidden">
     <div
       v-if="loading && !project"
       class="p-6 text-sm text-muted-foreground"
@@ -191,7 +191,7 @@ provide(projectContextKey, {
 
     <template v-else-if="project">
       <!-- Top bar -->
-      <div class="flex flex-col gap-3 px-6 pt-5 pb-3">
+      <div class="shrink-0 flex flex-col gap-3 px-6 pt-5 pb-3 bg-background">
         <RouterLink
           to="/app"
           class="text-xs text-muted-foreground hover:underline w-fit"
@@ -274,7 +274,7 @@ provide(projectContextKey, {
 
       <!-- Tabs -->
       <nav
-        class="px-6 border-b flex items-center gap-1 overflow-x-auto"
+        class="shrink-0 px-6 border-b flex items-center gap-1 overflow-x-auto bg-background"
         aria-label="Project sections"
       >
         <RouterLink
@@ -289,7 +289,7 @@ provide(projectContextKey, {
         </RouterLink>
       </nav>
 
-      <div class="p-6">
+      <div class="flex-1 min-h-0 overflow-y-auto p-6">
         <RouterView />
       </div>
 
