@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { VsxIcon } from "vue-iconsax";
 import axios from "axios";
 import { useComponentStore } from "@/store/component";
+import { useSprintStore } from "@/store/sprint";
 import { useUserStore } from "@/store/user";
 import * as workItemService from "@/services/workItem.service";
 import type {
@@ -31,6 +32,7 @@ import { useProjectContext } from "./projectContext";
 
 const router = useRouter();
 const componentStore = useComponentStore();
+const sprintStore = useSprintStore();
 const userStore = useUserStore();
 const { project, tasksError, canCreateTask, openCreateTask, reloadTasks } =
   useProjectContext();
@@ -102,10 +104,21 @@ const TYPE_META: Record<
 type ColumnKey =
   | "select"
   | "summary"
+  | "type"
+  | "key"
   | "state"
   | "priority"
   | "assignee"
+  | "reporter"
+  | "labels"
+  | "components"
+  | "sprint"
+  | "storyPoints"
+  | "dueDate"
+  | "attachments"
   | "updated"
+  | "created"
+  | "createdBy"
   | "actions";
 
 interface ColumnDef {
@@ -129,6 +142,14 @@ const COLUMNS: ColumnDef[] = [
     defaultWidth: 360,
     minWidth: 200,
   },
+  { key: "type", label: "Type", defaultWidth: 120, minWidth: 90 },
+  {
+    key: "key",
+    label: "Key",
+    sortBy: "key",
+    defaultWidth: 110,
+    minWidth: 80,
+  },
   {
     key: "state",
     label: "State",
@@ -144,6 +165,23 @@ const COLUMNS: ColumnDef[] = [
     minWidth: 90,
   },
   { key: "assignee", label: "Assignee", defaultWidth: 200, minWidth: 140 },
+  { key: "reporter", label: "Reporter", defaultWidth: 200, minWidth: 140 },
+  { key: "labels", label: "Labels", defaultWidth: 200, minWidth: 140 },
+  { key: "components", label: "Components", defaultWidth: 200, minWidth: 140 },
+  { key: "sprint", label: "Sprint", defaultWidth: 160, minWidth: 120 },
+  {
+    key: "storyPoints",
+    label: "Story points",
+    defaultWidth: 110,
+    minWidth: 80,
+  },
+  { key: "dueDate", label: "Due date", defaultWidth: 140, minWidth: 110 },
+  {
+    key: "attachments",
+    label: "Attachments",
+    defaultWidth: 130,
+    minWidth: 100,
+  },
   {
     key: "updated",
     label: "Updated",
@@ -151,16 +189,35 @@ const COLUMNS: ColumnDef[] = [
     defaultWidth: 180,
     minWidth: 140,
   },
+  {
+    key: "created",
+    label: "Created",
+    sortBy: "createdAt",
+    defaultWidth: 180,
+    minWidth: 140,
+  },
+  { key: "createdBy", label: "Created by", defaultWidth: 200, minWidth: 140 },
   { key: "actions", label: "", defaultWidth: 64, minWidth: 64 },
 ];
 
 const visibleColumns = ref<Record<ColumnKey, boolean>>({
   select: true,
   summary: true,
+  type: false,
+  key: false,
   state: true,
   priority: true,
   assignee: true,
+  reporter: false,
+  labels: false,
+  components: false,
+  sprint: false,
+  storyPoints: false,
+  dueDate: false,
+  attachments: false,
   updated: true,
+  created: false,
+  createdBy: false,
   actions: true,
 });
 
@@ -226,8 +283,27 @@ function toggleColumn(key: ColumnKey): void {
 }
 
 function resetColumns(): void {
+  visibleColumns.value = {
+    select: true,
+    summary: true,
+    type: false,
+    key: false,
+    state: true,
+    priority: true,
+    assignee: true,
+    reporter: false,
+    labels: false,
+    components: false,
+    sprint: false,
+    storyPoints: false,
+    dueDate: false,
+    attachments: false,
+    updated: true,
+    created: false,
+    createdBy: false,
+    actions: true,
+  };
   for (const c of COLUMNS) {
-    visibleColumns.value[c.key] = true;
     columnWidths.value[c.key] = c.defaultWidth;
   }
   summaryFrozen.value = false;
@@ -364,6 +440,9 @@ watch(
 
 onMounted(async () => {
   await userStore.fetchUsers().catch(() => undefined);
+  if (project.value?._id) {
+    void sprintStore.fetchSprints(project.value._id).catch(() => undefined);
+  }
   void fetchPage();
 });
 
@@ -494,6 +573,15 @@ function formatDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   })}`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString();
+}
+
+function sprintName(id: string | null): string {
+  if (!id) return "—";
+  return sprintStore.findById(id)?.name ?? "—";
 }
 
 function openItem(id: string): void {
@@ -1488,10 +1576,161 @@ function togglePageSelection(value: boolean | "indeterminate"): void {
               </td>
 
               <td
+                v-else-if="col.key === 'type'"
+                class="px-4 py-2.5 border-r last:border-r-0"
+              >
+                <span class="inline-flex items-center gap-1.5 text-xs">
+                  <VsxIcon
+                    :iconName="TYPE_META[row.item.type].icon"
+                    class="size-4 shrink-0"
+                    :class="TYPE_META[row.item.type].text"
+                  />
+                  {{ TYPE_META[row.item.type].label }}
+                </span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'key'"
+                class="px-4 py-2.5 border-r last:border-r-0 whitespace-nowrap"
+              >
+                <span class="font-mono text-xs text-muted-foreground">
+                  {{ row.item.key }}
+                </span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'reporter'"
+                class="px-4 py-2.5 border-r last:border-r-0"
+              >
+                <div
+                  v-if="row.item.reporterId"
+                  class="flex items-center gap-2 min-w-0"
+                >
+                  <Avatar class="size-6 shrink-0">
+                    <AvatarFallback class="text-[10px]">
+                      {{ memberInitials(row.item.reporterId) }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span class="text-xs truncate">
+                    {{ memberName(row.item.reporterId) }}
+                  </span>
+                </div>
+                <span v-else class="text-xs text-muted-foreground">—</span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'labels'"
+                class="px-4 py-2.5 border-r last:border-r-0"
+              >
+                <div
+                  v-if="row.item.labels.length"
+                  class="flex flex-wrap items-center gap-1"
+                >
+                  <span
+                    v-for="label in row.item.labels"
+                    :key="label"
+                    class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+                  >
+                    {{ label }}
+                  </span>
+                </div>
+                <span v-else class="text-xs text-muted-foreground">—</span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'components'"
+                class="px-4 py-2.5 border-r last:border-r-0"
+              >
+                <div
+                  v-if="itemComponents(row.item).length"
+                  class="flex flex-wrap items-center gap-1"
+                >
+                  <span
+                    v-for="c in itemComponents(row.item)"
+                    :key="c._id"
+                    class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+                  >
+                    {{ c.name }}
+                  </span>
+                </div>
+                <span v-else class="text-xs text-muted-foreground">—</span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'sprint'"
+                class="px-4 py-2.5 border-r last:border-r-0 whitespace-nowrap"
+              >
+                <span
+                  v-if="row.item.sprintId"
+                  class="text-xs truncate"
+                >
+                  {{ sprintName(row.item.sprintId) }}
+                </span>
+                <span v-else class="text-xs text-muted-foreground">—</span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'storyPoints'"
+                class="px-4 py-2.5 border-r last:border-r-0 text-center"
+              >
+                <span
+                  v-if="row.item.storyPoints != null"
+                  class="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs"
+                >
+                  {{ row.item.storyPoints }}
+                </span>
+                <span v-else class="text-xs text-muted-foreground">—</span>
+              </td>
+
+              <td
+                v-else-if="col.key === 'dueDate'"
+                class="px-4 py-2.5 border-r last:border-r-0 whitespace-nowrap text-xs text-muted-foreground"
+              >
+                {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
+              </td>
+
+              <td
+                v-else-if="col.key === 'attachments'"
+                class="px-4 py-2.5 border-r last:border-r-0 text-center"
+              >
+                <span
+                  v-if="row.item.attachments.length"
+                  class="inline-flex items-center gap-1 text-xs"
+                >
+                  <VsxIcon iconName="Paperclip2" class="size-3.5" />
+                  {{ row.item.attachments.length }}
+                </span>
+                <span v-else class="text-xs text-muted-foreground">—</span>
+              </td>
+
+              <td
                 v-else-if="col.key === 'updated'"
                 class="px-4 py-2.5 whitespace-nowrap text-xs text-muted-foreground border-r last:border-r-0"
               >
                 {{ formatDateTime(row.item.updatedAt) }}
+              </td>
+
+              <td
+                v-else-if="col.key === 'created'"
+                class="px-4 py-2.5 whitespace-nowrap text-xs text-muted-foreground border-r last:border-r-0"
+              >
+                {{ formatDateTime(row.item.createdAt) }}
+              </td>
+
+              <td
+                v-else-if="col.key === 'createdBy'"
+                class="px-4 py-2.5 border-r last:border-r-0"
+              >
+                <div class="flex items-center gap-2 min-w-0">
+                  <Avatar class="size-6 shrink-0">
+                    <AvatarFallback class="text-[10px]">
+                      {{ memberInitials(row.item.createdBy) }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span class="text-xs truncate">
+                    {{ memberName(row.item.createdBy) }}
+                  </span>
+                </div>
               </td>
 
               <td
