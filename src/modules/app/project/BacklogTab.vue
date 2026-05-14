@@ -1,29 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
-import axios from 'axios';
-import { storeToRefs } from 'pinia';
-import { VsxIcon } from 'vue-iconsax';
-import { useWorkItemStore } from '@/store/workItem';
-import { useSprintStore } from '@/store/sprint';
+import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import axios from "axios";
+import { storeToRefs } from "pinia";
+import { VsxIcon } from "vue-iconsax";
+import { useWorkItemStore } from "@/store/workItem";
+import { useSprintStore } from "@/store/sprint";
 import type {
   Sprint,
   WorkItem,
   WorkItemPriority,
   WorkItemState,
   WorkItemType,
-} from '@/types';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+} from "@/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -31,8 +31,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { useProjectContext } from './projectContext';
+} from "@/components/ui/dialog";
+import { useProjectContext } from "./projectContext";
 
 const router = useRouter();
 const { project, canCreateTask, openCreateTask } = useProjectContext();
@@ -50,10 +50,10 @@ const actionError = ref<string | null>(null);
 const sprintDialogOpen = ref(false);
 const editingSprintId = ref<string | null>(null);
 const sprintForm = ref({
-  name: '',
-  goal: '',
-  startDate: '',
-  endDate: '',
+  name: "",
+  goal: "",
+  startDate: "",
+  endDate: "",
 });
 const sprintSubmitting = ref(false);
 const sprintError = ref<string | null>(null);
@@ -61,12 +61,10 @@ const sprintError = ref<string | null>(null);
 // Close-sprint dialog state
 const closeDialogOpen = ref(false);
 const closingSprintId = ref<string | null>(null);
-const rolloverTarget = ref<string>('__backlog__');
+const rolloverTarget = ref<string>("__backlog__");
 const closingSubmitting = ref(false);
 const closeError = ref<string | null>(null);
-const closeResult = ref<{ rolledOver: number; completed: number } | null>(
-  null,
-);
+const closeResult = ref<{ rolledOver: number; completed: number } | null>(null);
 
 // Sprint report dialog
 const reportDialogOpen = ref(false);
@@ -79,32 +77,29 @@ const reportData = ref<{
   total: { count: number; storyPoints: number };
 } | null>(null);
 
-const TYPE_META: Record<
-  WorkItemType,
-  { icon: string; text: string }
-> = {
-  segment: { icon: 'Element4', text: 'text-violet-500' },
-  task: { icon: 'TaskSquare', text: 'text-sky-500' },
-  subtask: { icon: 'TickSquare', text: 'text-emerald-500' },
+const TYPE_META: Record<WorkItemType, { icon: string; text: string }> = {
+  segment: { icon: "Element4", text: "text-violet-500" },
+  task: { icon: "TaskSquare", text: "text-sky-500" },
+  subtask: { icon: "TickSquare", text: "text-emerald-500" },
 };
 
 const STATE_BADGE: Record<WorkItemState, string> = {
-  TODO: 'bg-slate-100 text-slate-800',
-  IN_PROGRESS: 'bg-blue-100 text-blue-800',
-  IN_REVIEW: 'bg-purple-100 text-purple-800',
-  DONE: 'bg-emerald-100 text-emerald-800',
-  BLOCKED: 'bg-red-100 text-red-800',
-  CANCELLED: 'bg-gray-100 text-gray-700',
+  TODO: "bg-slate-100 text-slate-800",
+  IN_PROGRESS: "bg-blue-100 text-blue-800",
+  IN_REVIEW: "bg-purple-100 text-purple-800",
+  DONE: "bg-emerald-100 text-emerald-800",
+  BLOCKED: "bg-red-100 text-red-800",
+  CANCELLED: "bg-gray-100 text-gray-700",
 };
 
 const PRIORITY_BADGE: Record<WorkItemPriority, string> = {
-  low: 'bg-muted text-muted-foreground',
-  medium: 'bg-blue-100 text-blue-800',
-  high: 'bg-amber-100 text-amber-800',
-  urgent: 'bg-red-100 text-red-800',
+  low: "bg-muted text-muted-foreground",
+  medium: "bg-blue-100 text-blue-800",
+  high: "bg-amber-100 text-amber-800",
+  urgent: "bg-red-100 text-red-800",
 };
 
-const projectId = computed<string>(() => project.value?._id ?? '');
+const projectId = computed<string>(() => project.value?._id ?? "");
 
 const backlogItems = computed<WorkItem[]>(() =>
   items.value.filter((i) => !i.sprintId),
@@ -133,7 +128,7 @@ const orderedSprints = computed<Sprint[]>(() =>
 const rolloverCandidates = computed<Sprint[]>(() => {
   if (!closingSprintId.value) return [];
   return sprints.value.filter(
-    (s) => s.state !== 'closed' && s._id !== closingSprintId.value,
+    (s) => s.state !== "closed" && s._id !== closingSprintId.value,
   );
 });
 
@@ -147,11 +142,10 @@ async function load(): Promise<void> {
       sprintStore.fetchSprints(projectId.value),
     ]);
   } catch (err) {
-    error.value =
-      axios.isAxiosError(err)
-        ? (err.response?.data as { message?: string } | undefined)?.message ??
-          'Failed to load backlog.'
-        : 'Failed to load backlog.';
+    error.value = axios.isAxiosError(err)
+      ? ((err.response?.data as { message?: string } | undefined)?.message ??
+        "Failed to load backlog.")
+      : "Failed to load backlog.";
   } finally {
     loading.value = false;
   }
@@ -176,12 +170,12 @@ function openSprintDialog(sprint?: Sprint): void {
     sprintForm.value = {
       name: sprint.name,
       goal: sprint.goal,
-      startDate: sprint.startDate ? sprint.startDate.slice(0, 10) : '',
-      endDate: sprint.endDate ? sprint.endDate.slice(0, 10) : '',
+      startDate: sprint.startDate ? sprint.startDate.slice(0, 10) : "",
+      endDate: sprint.endDate ? sprint.endDate.slice(0, 10) : "",
     };
   } else {
     editingSprintId.value = null;
-    sprintForm.value = { name: '', goal: '', startDate: '', endDate: '' };
+    sprintForm.value = { name: "", goal: "", startDate: "", endDate: "" };
   }
   sprintError.value = null;
   sprintDialogOpen.value = true;
@@ -189,7 +183,7 @@ function openSprintDialog(sprint?: Sprint): void {
 
 async function submitSprint(): Promise<void> {
   if (sprintForm.value.name.trim().length < 2) {
-    sprintError.value = 'Name must be at least 2 characters';
+    sprintError.value = "Name must be at least 2 characters";
     return;
   }
   sprintSubmitting.value = true;
@@ -215,7 +209,7 @@ async function submitSprint(): Promise<void> {
     }
     sprintDialogOpen.value = false;
   } catch (err) {
-    sprintError.value = extractMessage(err, 'Failed to save sprint.');
+    sprintError.value = extractMessage(err, "Failed to save sprint.");
   } finally {
     sprintSubmitting.value = false;
   }
@@ -226,13 +220,13 @@ async function startSprint(id: string): Promise<void> {
   try {
     await sprintStore.startSprint(id);
   } catch (err) {
-    actionError.value = extractMessage(err, 'Failed to start sprint.');
+    actionError.value = extractMessage(err, "Failed to start sprint.");
   }
 }
 
 function openCloseDialog(id: string): void {
   closingSprintId.value = id;
-  rolloverTarget.value = '__backlog__';
+  rolloverTarget.value = "__backlog__";
   closeError.value = null;
   closeResult.value = null;
   closeDialogOpen.value = true;
@@ -244,11 +238,8 @@ async function confirmCloseSprint(): Promise<void> {
   closeError.value = null;
   try {
     const target =
-      rolloverTarget.value === '__backlog__' ? null : rolloverTarget.value;
-    const result = await sprintStore.closeSprint(
-      closingSprintId.value,
-      target,
-    );
+      rolloverTarget.value === "__backlog__" ? null : rolloverTarget.value;
+    const result = await sprintStore.closeSprint(closingSprintId.value, target);
     closeResult.value = {
       rolledOver: result.rolledOver,
       completed: result.completed,
@@ -256,7 +247,7 @@ async function confirmCloseSprint(): Promise<void> {
     // Refresh items to reflect rollover.
     await workItemStore.fetchItems({ projectId: projectId.value });
   } catch (err) {
-    closeError.value = extractMessage(err, 'Failed to close sprint.');
+    closeError.value = extractMessage(err, "Failed to close sprint.");
   } finally {
     closingSubmitting.value = false;
   }
@@ -274,7 +265,7 @@ async function deleteSprint(id: string): Promise<void> {
     await sprintStore.deleteSprint(id);
     await workItemStore.fetchItems({ projectId: projectId.value });
   } catch (err) {
-    actionError.value = extractMessage(err, 'Failed to delete sprint.');
+    actionError.value = extractMessage(err, "Failed to delete sprint.");
   }
 }
 
@@ -285,7 +276,7 @@ async function viewReport(id: string): Promise<void> {
   try {
     reportData.value = await sprintStore.fetchReport(id);
   } catch (err) {
-    actionError.value = extractMessage(err, 'Failed to load sprint report.');
+    actionError.value = extractMessage(err, "Failed to load sprint report.");
     reportDialogOpen.value = false;
   } finally {
     reportLoading.value = false;
@@ -293,23 +284,18 @@ async function viewReport(id: string): Promise<void> {
 }
 
 function openItem(id: string): void {
-  void router.push({ name: 'workitem-detail', params: { id } });
+  void router.push({ name: "workitem-detail", params: { id } });
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString();
 }
 
-function memberInitials(id: string | null): string {
-  if (!id) return '?';
-  return id.slice(-2).toUpperCase();
-}
-
-function sprintStateColor(state: Sprint['state']): string {
-  if (state === 'active') return 'bg-emerald-500';
-  if (state === 'planned') return 'bg-amber-400';
-  return 'bg-slate-400';
+function sprintStateColor(state: Sprint["state"]): string {
+  if (state === "active") return "bg-emerald-500";
+  if (state === "planned") return "bg-amber-400";
+  return "bg-slate-400";
 }
 </script>
 
@@ -359,7 +345,9 @@ function sprintStateColor(state: Sprint['state']): string {
           class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b bg-muted/30"
         >
           <div class="flex items-center gap-3 min-w-0">
-            <span :class="['size-2 rounded-full', sprintStateColor(sprint.state)]" />
+            <span
+              :class="['size-2 rounded-full', sprintStateColor(sprint.state)]"
+            />
             <h3 class="font-semibold truncate">{{ sprint.name }}</h3>
             <span
               class="text-[10px] uppercase tracking-wider font-medium px-2 py-0.5 rounded bg-muted/60 text-muted-foreground"
@@ -373,7 +361,8 @@ function sprintStateColor(state: Sprint['state']): string {
               v-if="sprint.startDate || sprint.endDate"
               class="text-xs text-muted-foreground"
             >
-              · {{ formatDate(sprint.startDate) }} → {{ formatDate(sprint.endDate) }}
+              · {{ formatDate(sprint.startDate) }} →
+              {{ formatDate(sprint.endDate) }}
             </span>
           </div>
 
@@ -454,7 +443,7 @@ function sprintStateColor(state: Sprint['state']): string {
             <span class="text-sm flex-1 truncate">{{ item.title }}</span>
             <span
               :class="[
-                'inline-block rounded px-2 py-0.5 text-[10px] capitalize hidden md:inline-block',
+                'rounded px-2 py-0.5 text-[10px] capitalize hidden md:inline-block',
                 PRIORITY_BADGE[item.priority],
               ]"
             >
@@ -462,11 +451,11 @@ function sprintStateColor(state: Sprint['state']): string {
             </span>
             <span
               :class="[
-                'inline-block rounded px-2 py-0.5 text-[10px] hidden md:inline-block',
+                'rounded px-2 py-0.5 text-[10px] hidden md:inline-block',
                 STATE_BADGE[item.state],
               ]"
             >
-              {{ item.state.replace('_', ' ').toLowerCase() }}
+              {{ item.state.replace("_", " ").toLowerCase() }}
             </span>
             <span
               v-if="item.storyPoints !== null"
@@ -487,7 +476,10 @@ function sprintStateColor(state: Sprint['state']): string {
           class="flex items-center justify-between gap-3 px-4 py-3 border-b bg-muted/30"
         >
           <div class="flex items-center gap-2">
-            <VsxIcon iconName="DocumentText" class="size-4 text-muted-foreground" />
+            <VsxIcon
+              iconName="DocumentText"
+              class="size-4 text-muted-foreground"
+            />
             <h3 class="font-semibold">Backlog</h3>
             <span class="text-xs text-muted-foreground">
               {{ backlogItems.length }} items
@@ -513,7 +505,7 @@ function sprintStateColor(state: Sprint['state']): string {
             <span class="text-sm flex-1 truncate">{{ item.title }}</span>
             <span
               :class="[
-                'inline-block rounded px-2 py-0.5 text-[10px] capitalize hidden md:inline-block',
+                'rounded px-2 py-0.5 text-[10px] capitalize hidden md:inline-block',
                 PRIORITY_BADGE[item.priority],
               ]"
             >
@@ -521,11 +513,11 @@ function sprintStateColor(state: Sprint['state']): string {
             </span>
             <span
               :class="[
-                'inline-block rounded px-2 py-0.5 text-[10px] hidden md:inline-block',
+                'rounded px-2 py-0.5 text-[10px] hidden md:inline-block',
                 STATE_BADGE[item.state],
               ]"
             >
-              {{ item.state.replace('_', ' ').toLowerCase() }}
+              {{ item.state.replace("_", " ").toLowerCase() }}
             </span>
           </li>
         </ul>
@@ -540,7 +532,7 @@ function sprintStateColor(state: Sprint['state']): string {
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {{ editingSprintId ? 'Edit sprint' : 'New sprint' }}
+            {{ editingSprintId ? "Edit sprint" : "New sprint" }}
           </DialogTitle>
           <DialogDescription>
             Sprints are time-boxed iterations of work for this project.
@@ -599,7 +591,7 @@ function sprintStateColor(state: Sprint['state']): string {
               Cancel
             </Button>
             <Button type="submit" :disabled="sprintSubmitting">
-              {{ sprintSubmitting ? 'Saving…' : 'Save' }}
+              {{ sprintSubmitting ? "Saving…" : "Save" }}
             </Button>
           </DialogFooter>
         </form>
@@ -663,7 +655,7 @@ function sprintStateColor(state: Sprint['state']): string {
             :disabled="closingSubmitting"
             @click="confirmCloseSprint"
           >
-            {{ closingSubmitting ? 'Completing…' : 'Complete sprint' }}
+            {{ closingSubmitting ? "Completing…" : "Complete sprint" }}
           </Button>
           <Button v-else @click="closeDialogOpen = false">Done</Button>
         </DialogFooter>
@@ -723,7 +715,9 @@ function sprintStateColor(state: Sprint['state']): string {
               {{ reportData.cancelled.storyPoints }} pts
             </p>
           </div>
-          <div class="col-span-3 text-sm text-muted-foreground text-center pt-2">
+          <div
+            class="col-span-3 text-sm text-muted-foreground text-center pt-2"
+          >
             Total: {{ reportData.total.count }} items ·
             {{ reportData.total.storyPoints }} story points
           </div>
