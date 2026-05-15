@@ -3,12 +3,14 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { VsxIcon } from "vue-iconsax";
 import axios from "axios";
+import { useAuthStore } from "@/store/auth";
 import { useComponentStore } from "@/store/component";
 import { useSprintStore } from "@/store/sprint";
 import { useUserStore } from "@/store/user";
 import * as workItemService from "@/services/workItem.service";
 import type {
   ProjectComponent,
+  UpdateWorkItemPayload,
   WorkItem,
   WorkItemPriority,
   WorkItemSortBy,
@@ -26,13 +28,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  DynamicDataTable,
-  type ColumnDef,
-} from "@/components/data-table";
+import { DynamicDataTable, type ColumnDef } from "@/components/data-table";
 import { useProjectContext } from "./projectContext";
 
 const router = useRouter();
+const auth = useAuthStore();
 const componentStore = useComponentStore();
 const sprintStore = useSprintStore();
 const userStore = useUserStore();
@@ -82,6 +82,31 @@ const STATE_BADGE: Record<WorkItemState, string> = {
   BLOCKED: "bg-red-100 text-red-800",
   CANCELLED: "bg-gray-100 text-gray-700",
 };
+
+const STATE_DOT: Record<WorkItemState, string> = {
+  TODO: "bg-slate-400",
+  IN_PROGRESS: "bg-blue-500",
+  IN_REVIEW: "bg-purple-500",
+  DONE: "bg-emerald-500",
+  BLOCKED: "bg-red-500",
+  CANCELLED: "bg-gray-400",
+};
+
+const EDITABLE_STATES: { value: WorkItemState; label: string }[] = [
+  { value: "TODO", label: "To do" },
+  { value: "IN_PROGRESS", label: "In progress" },
+  { value: "IN_REVIEW", label: "In review" },
+  { value: "DONE", label: "Done" },
+  { value: "BLOCKED", label: "Blocked" },
+  { value: "CANCELLED", label: "Cancelled" },
+];
+
+const EDITABLE_PRIORITIES: { value: WorkItemPriority; label: string }[] = [
+  { value: "urgent", label: "Urgent" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+];
 
 const PRIORITY_BADGE: Record<WorkItemPriority, string> = {
   low: "bg-muted text-muted-foreground",
@@ -133,6 +158,7 @@ const columns: ColumnDef[] = [
     sortBy: "state",
     defaultWidth: 140,
     minWidth: 100,
+    cellClass: "!p-0",
   },
   {
     key: "priority",
@@ -140,14 +166,22 @@ const columns: ColumnDef[] = [
     sortBy: "priority",
     defaultWidth: 120,
     minWidth: 90,
+    cellClass: "!p-0",
   },
-  { key: "assignee", label: "Assignee", defaultWidth: 200, minWidth: 140 },
+  {
+    key: "assignee",
+    label: "Assignee",
+    defaultWidth: 200,
+    minWidth: 140,
+    cellClass: "!p-0",
+  },
   {
     key: "reporter",
     label: "Reporter",
     defaultWidth: 200,
     minWidth: 140,
-    defaultVisible: false,
+    defaultVisible: true,
+    cellClass: "!p-0",
   },
   {
     key: "labels",
@@ -184,8 +218,9 @@ const columns: ColumnDef[] = [
     label: "Due date",
     defaultWidth: 140,
     minWidth: 110,
-    defaultVisible: false,
+    defaultVisible: true,
     whitespaceNowrap: true,
+    cellClass: "!p-0",
   },
   {
     key: "attachments",
@@ -465,6 +500,93 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+function dateOnly(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+const isPrivileged = computed<boolean>(() => {
+  const role = auth.user?.role;
+  return role === "manager" || role === "admin" || role === "super_admin";
+});
+
+function canEditItem(item: WorkItem): boolean {
+  if (!auth.user) return false;
+  if (isPrivileged.value) return true;
+  return (
+    item.assigneeId === auth.user._id ||
+    item.reporterId === auth.user._id ||
+    item.createdBy === auth.user._id
+  );
+}
+
+async function patchItem(
+  item: WorkItem,
+  payload: UpdateWorkItemPayload,
+): Promise<void> {
+  loadError.value = null;
+  try {
+    const updated = await workItemService.updateWorkItem(item._id, payload);
+    items.value = items.value.map((it) =>
+      it._id === updated._id ? updated : it,
+    );
+    void reloadTasks();
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      loadError.value =
+        (err.response?.data as { message?: string } | undefined)?.message ??
+        "Failed to update work item.";
+    } else {
+      loadError.value = "Failed to update work item.";
+    }
+  }
+}
+
+async function changeState(
+  item: WorkItem,
+  state: WorkItemState,
+): Promise<void> {
+  if (item.state === state) return;
+  await patchItem(item, { state });
+}
+
+async function changePriority(
+  item: WorkItem,
+  priority: WorkItemPriority,
+): Promise<void> {
+  if (item.priority === priority) return;
+  await patchItem(item, { priority });
+}
+
+async function changeAssignee(
+  item: WorkItem,
+  assigneeId: string | null,
+): Promise<void> {
+  if ((item.assigneeId ?? null) === assigneeId) return;
+  await patchItem(item, { assigneeId });
+}
+
+async function changeReporter(
+  item: WorkItem,
+  reporterId: string,
+): Promise<void> {
+  if (item.reporterId === reporterId) return;
+  await patchItem(item, { reporterId });
+}
+
+async function changeDueDate(
+  item: WorkItem,
+  event: Event | null,
+): Promise<void> {
+  let next: string | null = null;
+  if (event) {
+    const v = (event.target as HTMLInputElement).value;
+    if (v) next = new Date(v).toISOString();
+  }
+  if ((item.dueDate ?? null) === next) return;
+  await patchItem(item, { dueDate: next });
+}
+
 function sprintName(id: string | null): string {
   if (!id) return "—";
   return sprintStore.findById(id)?.name ?? "—";
@@ -672,9 +794,7 @@ function getRowId(row: FlatRow): string {
           type="button"
           class="relative size-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
           :class="
-            isAssigneeSelected('none')
-              ? 'ring-primary z-10'
-              : 'ring-background'
+            isAssigneeSelected('none') ? 'ring-primary z-10' : 'ring-background'
           "
           title="Filter: Unassigned"
           @click="selectAssignee('none')"
@@ -687,9 +807,7 @@ function getRowId(row: FlatRow): string {
           type="button"
           class="relative rounded-full transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
           :class="
-            isAssigneeSelected(u._id)
-              ? 'ring-primary z-10'
-              : 'ring-background'
+            isAssigneeSelected(u._id) ? 'ring-primary z-10' : 'ring-background'
           "
           :title="`Filter: ${u.name}`"
           @click="selectAssignee(u._id)"
@@ -1036,59 +1154,235 @@ function getRowId(row: FlatRow): string {
     </template>
 
     <template #cell-state="{ row }">
-      <span
-        :class="[
-          'inline-block rounded px-2 py-0.5 text-xs',
-          STATE_BADGE[row.item.state],
-        ]"
-      >
-        {{ STATE_LABELS[row.item.state] }}
-      </span>
+      <DropdownMenu v-if="canEditItem(row.item)">
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+            @click.stop
+          >
+            <span
+              :class="[
+                'inline-block rounded px-2 py-0.5 text-xs',
+                STATE_BADGE[row.item.state],
+              ]"
+            >
+              {{ STATE_LABELS[row.item.state] }}
+            </span>
+            <VsxIcon
+              iconName="ArrowDown2"
+              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" @click.stop>
+          <DropdownMenuItem
+            v-for="s in EDITABLE_STATES"
+            :key="s.value"
+            @select="changeState(row.item, s.value)"
+          >
+            <span class="inline-flex items-center gap-2">
+              <span :class="['size-2 rounded-full', STATE_DOT[s.value]]" />
+              {{ s.label }}
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <div v-else class="flex items-center h-13 px-4">
+        <span
+          :class="[
+            'inline-block rounded px-2 py-0.5 text-xs',
+            STATE_BADGE[row.item.state],
+          ]"
+        >
+          {{ STATE_LABELS[row.item.state] }}
+        </span>
+      </div>
     </template>
 
     <template #cell-priority="{ row }">
-      <span
-        :class="[
-          'inline-block rounded px-2 py-0.5 text-xs capitalize',
-          PRIORITY_BADGE[row.item.priority],
-        ]"
-      >
-        {{ row.item.priority }}
-      </span>
+      <DropdownMenu v-if="canEditItem(row.item)">
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+            @click.stop
+          >
+            <span
+              :class="[
+                'inline-block rounded px-2 py-0.5 text-xs capitalize',
+                PRIORITY_BADGE[row.item.priority],
+              ]"
+            >
+              {{ row.item.priority }}
+            </span>
+            <VsxIcon
+              iconName="ArrowDown2"
+              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" @click.stop>
+          <DropdownMenuItem
+            v-for="p in EDITABLE_PRIORITIES"
+            :key="p.value"
+            @select="changePriority(row.item, p.value)"
+          >
+            <span
+              :class="[
+                'inline-block size-2 rounded-full',
+                p.value === 'urgent'
+                  ? 'bg-red-500'
+                  : p.value === 'high'
+                    ? 'bg-amber-500'
+                    : p.value === 'medium'
+                      ? 'bg-blue-500'
+                      : 'bg-slate-400',
+              ]"
+            />
+            <span>{{ p.label }}</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <div v-else class="flex items-center h-13 px-4">
+        <span
+          :class="[
+            'inline-block rounded px-2 py-0.5 text-xs capitalize',
+            PRIORITY_BADGE[row.item.priority],
+          ]"
+        >
+          {{ row.item.priority }}
+        </span>
+      </div>
     </template>
 
     <template #cell-assignee="{ row }">
-      <div
-        v-if="row.item.assigneeId"
-        class="flex items-center gap-2 min-w-0"
-      >
-        <Avatar class="size-6 shrink-0">
-          <AvatarFallback class="text-[10px]">
-            {{ memberInitials(row.item.assigneeId) }}
-          </AvatarFallback>
-        </Avatar>
-        <span class="text-xs truncate">
-          {{ memberName(row.item.assigneeId) }}
-        </span>
+      <DropdownMenu v-if="canEditItem(row.item)">
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+            @click.stop
+          >
+            <span class="flex items-center gap-2 min-w-0">
+              <template v-if="row.item.assigneeId">
+                <Avatar class="size-6 shrink-0">
+                  <AvatarFallback class="text-[10px]">
+                    {{ memberInitials(row.item.assigneeId) }}
+                  </AvatarFallback>
+                </Avatar>
+                <span class="text-xs truncate">
+                  {{ memberName(row.item.assigneeId) }}
+                </span>
+              </template>
+              <span v-else class="text-xs text-muted-foreground">
+                Unassigned
+              </span>
+            </span>
+            <VsxIcon
+              iconName="ArrowDown2"
+              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          class="max-h-72 overflow-y-auto"
+          @click.stop
+        >
+          <DropdownMenuItem @select="changeAssignee(row.item, null)">
+            <VsxIcon iconName="User" class="size-4" />
+            <span>Unassigned</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            v-for="u in projectMemberUsers"
+            :key="u._id"
+            @select="changeAssignee(row.item, u._id)"
+          >
+            <Avatar class="size-5">
+              <AvatarFallback class="text-[9px]">
+                {{ userStore.initials(u._id) }}
+              </AvatarFallback>
+            </Avatar>
+            <span>{{ u.name }}</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <div v-else class="flex items-center h-13 px-4">
+        <div v-if="row.item.assigneeId" class="flex items-center gap-2 min-w-0">
+          <Avatar class="size-6 shrink-0">
+            <AvatarFallback class="text-[10px]">
+              {{ memberInitials(row.item.assigneeId) }}
+            </AvatarFallback>
+          </Avatar>
+          <span class="text-xs truncate">
+            {{ memberName(row.item.assigneeId) }}
+          </span>
+        </div>
+        <span v-else class="text-xs text-muted-foreground">Unassigned</span>
       </div>
-      <span v-else class="text-xs text-muted-foreground">Unassigned</span>
     </template>
 
     <template #cell-reporter="{ row }">
-      <div
-        v-if="row.item.reporterId"
-        class="flex items-center gap-2 min-w-0"
-      >
-        <Avatar class="size-6 shrink-0">
-          <AvatarFallback class="text-[10px]">
-            {{ memberInitials(row.item.reporterId) }}
-          </AvatarFallback>
-        </Avatar>
-        <span class="text-xs truncate">
-          {{ memberName(row.item.reporterId) }}
-        </span>
+      <DropdownMenu v-if="canEditItem(row.item)">
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+            @click.stop
+          >
+            <span class="flex items-center gap-2 min-w-0">
+              <template v-if="row.item.reporterId">
+                <Avatar class="size-6 shrink-0">
+                  <AvatarFallback class="text-[10px]">
+                    {{ memberInitials(row.item.reporterId) }}
+                  </AvatarFallback>
+                </Avatar>
+                <span class="text-xs truncate">
+                  {{ memberName(row.item.reporterId) }}
+                </span>
+              </template>
+              <span v-else class="text-xs text-muted-foreground">—</span>
+            </span>
+            <VsxIcon
+              iconName="ArrowDown2"
+              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          class="max-h-72 overflow-y-auto"
+          @click.stop
+        >
+          <DropdownMenuItem
+            v-for="u in projectMemberUsers"
+            :key="u._id"
+            @select="changeReporter(row.item, u._id)"
+          >
+            <Avatar class="size-5">
+              <AvatarFallback class="text-[9px]">
+                {{ userStore.initials(u._id) }}
+              </AvatarFallback>
+            </Avatar>
+            <span>{{ u.name }}</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <div v-else class="flex items-center h-13 px-4">
+        <div v-if="row.item.reporterId" class="flex items-center gap-2 min-w-0">
+          <Avatar class="size-6 shrink-0">
+            <AvatarFallback class="text-[10px]">
+              {{ memberInitials(row.item.reporterId) }}
+            </AvatarFallback>
+          </Avatar>
+          <span class="text-xs truncate">
+            {{ memberName(row.item.reporterId) }}
+          </span>
+        </div>
+        <span v-else class="text-xs text-muted-foreground">—</span>
       </div>
-      <span v-else class="text-xs text-muted-foreground">—</span>
     </template>
 
     <template #cell-labels="{ row }">
@@ -1141,9 +1435,48 @@ function getRowId(row: FlatRow): string {
     </template>
 
     <template #cell-dueDate="{ row }">
-      <span class="text-xs text-muted-foreground">
-        {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
-      </span>
+      <DropdownMenu v-if="canEditItem(row.item)">
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+            @click.stop
+          >
+            <span class="text-xs text-muted-foreground">
+              {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
+            </span>
+            <VsxIcon
+              iconName="ArrowDown2"
+              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          class="p-2 flex flex-col gap-2 min-w-52"
+          @click.stop
+        >
+          <input
+            type="date"
+            :value="dateOnly(row.item.dueDate)"
+            class="border rounded px-2 py-1 text-sm bg-background"
+            @change="(e) => changeDueDate(row.item, e)"
+          />
+          <button
+            v-if="row.item.dueDate"
+            type="button"
+            class="cursor-pointer text-xs text-muted-foreground hover:text-destructive text-left px-2 py-1"
+            @click="changeDueDate(row.item, null)"
+          >
+            Clear due date
+          </button>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <div v-else class="flex items-center h-13 px-4">
+        <span class="text-xs text-muted-foreground">
+          {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
+        </span>
+      </div>
     </template>
 
     <template #cell-attachments="{ row }">
