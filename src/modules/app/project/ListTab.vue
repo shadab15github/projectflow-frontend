@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { VsxIcon } from "vue-iconsax";
 import axios from "axios";
@@ -588,6 +588,118 @@ async function changeDueDate(
   await patchItem(item, { dueDate: next });
 }
 
+// --- Inline title editing (double-click on summary cell) ---
+const editingId = ref<string | null>(null);
+const editingTitle = ref<string>("");
+const editingError = ref<string | null>(null);
+const editingSaving = ref<boolean>(false);
+let titleClickTimer: number | null = null;
+let lastEditExitAt = 0;
+let focusedEditId: string | null = null;
+
+function setEditInputRef(el: unknown): void {
+  if (!(el instanceof HTMLInputElement)) return;
+  if (focusedEditId === editingId.value) return;
+  focusedEditId = editingId.value;
+  el.value = editingTitle.value;
+  void nextTick(() => {
+    el.focus();
+    el.select();
+  });
+}
+
+function startEditTitle(item: WorkItem): void {
+  if (!canEditItem(item)) return;
+  editingId.value = item._id;
+  editingTitle.value = item.title;
+  editingError.value = null;
+}
+
+function cancelEditTitle(): void {
+  editingId.value = null;
+  editingTitle.value = "";
+  editingError.value = null;
+  lastEditExitAt = Date.now();
+  focusedEditId = null;
+}
+
+async function saveEditTitle(item: WorkItem, raw: string): Promise<void> {
+  if (editingId.value !== item._id || editingSaving.value) return;
+  const next = raw.trim();
+  if (next === item.title) {
+    cancelEditTitle();
+    return;
+  }
+  if (next.length < 2) {
+    editingError.value = "Title must be at least 2 characters";
+    return;
+  }
+  editingSaving.value = true;
+  try {
+    const updated = await workItemService.updateWorkItem(item._id, {
+      title: next,
+    });
+    items.value = items.value.map((it) =>
+      it._id === updated._id ? updated : it,
+    );
+    void reloadTasks();
+    cancelEditTitle();
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      editingError.value =
+        (err.response?.data as { message?: string } | undefined)?.message ??
+        "Failed to update title.";
+    } else {
+      editingError.value = "Failed to update title.";
+    }
+  } finally {
+    editingSaving.value = false;
+  }
+}
+
+function onTitleKey(event: KeyboardEvent, item: WorkItem): void {
+  const input = event.target as HTMLInputElement;
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void saveEditTitle(item, input.value);
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    cancelEditTitle();
+  }
+}
+
+function onTitleBlur(event: FocusEvent, item: WorkItem): void {
+  if (editingId.value !== item._id) return;
+  const input = event.target as HTMLInputElement;
+  void saveEditTitle(item, input.value);
+}
+
+function onTitleClick(event: MouseEvent, item: WorkItem): void {
+  if (editingId.value === item._id) return;
+  event.stopPropagation();
+  // Suppress click that fired as part of blur-to-save (clicking outside input)
+  if (Date.now() - lastEditExitAt < 300) return;
+  if (titleClickTimer !== null) {
+    window.clearTimeout(titleClickTimer);
+    titleClickTimer = null;
+    return;
+  }
+  titleClickTimer = window.setTimeout(() => {
+    titleClickTimer = null;
+    openItem(item._id);
+  }, 250);
+}
+
+function onTitleDblClick(event: MouseEvent, item: WorkItem): void {
+  event.stopPropagation();
+  event.preventDefault();
+  if (titleClickTimer !== null) {
+    window.clearTimeout(titleClickTimer);
+    titleClickTimer = null;
+  }
+  startEditTitle(item);
+}
+
 function sprintName(id: string | null): string {
   if (!id) return "—";
   return sprintStore.findById(id)?.name ?? "—";
@@ -1122,7 +1234,19 @@ async function bulkDelete(): Promise<void> {
       <template #cell-summary="{ row }">
         <div
           class="relative flex items-center h-13 pr-2"
+          :class="
+            canEditItem(row.item) && editingId !== row.item._id
+              ? 'cursor-pointer'
+              : ''
+          "
           :style="{ paddingLeft: `${row.depth * 32}px` }"
+          :title="
+            canEditItem(row.item) && editingId !== row.item._id
+              ? 'Double-click to rename'
+              : undefined
+          "
+          @click="(e) => onTitleClick(e, row.item)"
+          @dblclick="(e) => onTitleDblClick(e, row.item)"
         >
           <svg
             v-if="row.depth > 0 || (row.expanded && row.hasChildren)"
@@ -1178,6 +1302,7 @@ async function bulkDelete(): Promise<void> {
             class="relative cursor-pointer ml-6 inline-flex items-center justify-center size-6 rounded hover:bg-accent border bg-card text-muted-foreground"
             :aria-label="row.expanded ? 'Collapse' : 'Expand'"
             @click.stop="toggleExpand(row.item._id)"
+            @dblclick.stop
           >
             <VsxIcon
               iconName="ArrowRight2"
@@ -1199,7 +1324,27 @@ async function bulkDelete(): Promise<void> {
               :class="TYPE_META[row.item.type].text"
             />
             <span class="flex flex-col min-w-0 leading-tight">
-              <span class="truncate">{{ row.item.title }}</span>
+              <template v-if="editingId === row.item._id">
+                <input
+                  :ref="setEditInputRef"
+                  type="text"
+                  class="w-full bg-background border border-primary/50 focus:border-primary rounded px-1.5 py-0.5 outline-none text-sm"
+                  :disabled="editingSaving"
+                  @keydown="(e) => onTitleKey(e, row.item)"
+                  @blur="(e) => onTitleBlur(e, row.item)"
+                  @click.stop
+                  @dblclick.stop
+                />
+                <span
+                  v-if="editingError"
+                  class="text-[10px] text-destructive mt-0.5"
+                >
+                  {{ editingError }}
+                </span>
+              </template>
+              <span v-else class="truncate">
+                {{ row.item.title }}
+              </span>
               <span
                 class="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground"
               >
