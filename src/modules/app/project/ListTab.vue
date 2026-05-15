@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DynamicDataTable, type ColumnDef } from "@/components/data-table";
+import BulkUpdateFieldsDialog from "./BulkUpdateFieldsDialog.vue";
 import { useProjectContext } from "./projectContext";
 
 const router = useRouter();
@@ -806,6 +807,18 @@ async function bulkChangeStatus(state: WorkItemState): Promise<void> {
       loadError.value = "Failed to update work items.";
     }
   }
+}
+
+const bulkUpdateOpen = ref<boolean>(false);
+
+function openBulkUpdate(): void {
+  if (selectedItems.value.length === 0) return;
+  bulkUpdateOpen.value = true;
+}
+
+async function onBulkUpdateApplied(): Promise<void> {
+  await fetchPage();
+  void reloadTasks();
 }
 
 async function bulkDelete(): Promise<void> {
@@ -1677,7 +1690,7 @@ async function bulkDelete(): Promise<void> {
           type="button"
           class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm cursor-pointer hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="!canBulkEdit"
-          @click="notImplemented('Update Fields')"
+          @click="openBulkUpdate"
         >
           <VsxIcon iconName="Edit" class="size-4" />
           <span>Update Fields</span>
@@ -1734,5 +1747,13 @@ async function bulkDelete(): Promise<void> {
         </button>
       </div>
     </Transition>
+
+    <BulkUpdateFieldsDialog
+      v-if="project"
+      v-model:open="bulkUpdateOpen"
+      :items="selectedItems"
+      :project="project"
+      @applied="onBulkUpdateApplied"
+    />
   </div>
 </template>
