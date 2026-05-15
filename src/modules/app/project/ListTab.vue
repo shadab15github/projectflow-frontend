@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DynamicDataTable, type ColumnDef } from "@/components/data-table";
 import BulkUpdateFieldsDialog from "./BulkUpdateFieldsDialog.vue";
+import ConnectParentDialog from "./ConnectParentDialog.vue";
 import { useProjectContext } from "./projectContext";
 
 const router = useRouter();
@@ -933,6 +934,61 @@ async function onBulkUpdateApplied(): Promise<void> {
   void reloadTasks();
 }
 
+// --- Connect to parent (task/segment) ---
+const connectDialogOpen = ref<boolean>(false);
+const connectTargetType = ref<"task" | "segment">("task");
+const connectItems = ref<WorkItem[]>([]);
+
+function openConnect(target: "task" | "segment", items: WorkItem[]): void {
+  if (items.length === 0) return;
+  connectTargetType.value = target;
+  connectItems.value = items;
+  connectDialogOpen.value = true;
+}
+
+async function onConnectApplied(payload: {
+  parentId: string;
+  updatedItems: WorkItem[];
+}): Promise<void> {
+  // Splice updated items into the local list for instant feedback.
+  if (payload.updatedItems.length > 0) {
+    const byId = new Map(payload.updatedItems.map((it) => [it._id, it]));
+    items.value = items.value.map((it) => byId.get(it._id) ?? it);
+  }
+  // Ensure hierarchy view reveals the moved items by expanding their new parent.
+  if (!expandedIds.value.has(payload.parentId)) {
+    const next = new Set(expandedIds.value);
+    next.add(payload.parentId);
+    expandedIds.value = next;
+  }
+  // Clear any rows that are no longer relevant from the selection.
+  if (selectedRows.value.size > 0) {
+    const next = new Set<string>();
+    for (const id of selectedRows.value) {
+      if (items.value.some((it) => it._id === id)) next.add(id);
+    }
+    selectedRows.value = next;
+  }
+  await fetchPage();
+  void reloadTasks();
+}
+
+const canBulkConnectToTask = computed<boolean>(
+  () =>
+    selectedItems.value.length > 0 &&
+    selectedItems.value.every((it) => it.type === "subtask"),
+);
+
+const canBulkConnectToSegment = computed<boolean>(
+  () =>
+    selectedItems.value.length > 0 &&
+    selectedItems.value.every((it) => it.type === "task"),
+);
+
+const canBulkConnect = computed<boolean>(
+  () => canBulkConnectToTask.value || canBulkConnectToSegment.value,
+);
+
 async function bulkDelete(): Promise<void> {
   const ids = [...selectedRows.value];
   if (ids.length === 0) return;
@@ -1778,6 +1834,25 @@ async function bulkDelete(): Promise<void> {
           <span>Filter by assignee</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem
+          v-if="row.item.type === 'subtask'"
+          :disabled="!canEditItem(row.item)"
+          @select="openConnect('task', [row.item])"
+        >
+          <VsxIcon iconName="TaskSquare" class="size-4 text-sky-600" />
+          <span>Connect to Task</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          v-if="row.item.type === 'task'"
+          :disabled="!canEditItem(row.item)"
+          @select="openConnect('segment', [row.item])"
+        >
+          <VsxIcon iconName="Element4" class="size-4 text-violet-600" />
+          <span>Connect to Segment</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator
+          v-if="row.item.type === 'subtask' || row.item.type === 'task'"
+        />
         <DropdownMenuItem variant="destructive" @select="deleteRow(row.item)">
           <VsxIcon iconName="Trash" class="size-4" />
           <span>Delete</span>
@@ -1870,6 +1945,39 @@ async function bulkDelete(): Promise<void> {
 
         <span class="w-px h-6 bg-border mx-1" />
 
+        <template v-if="canBulkConnect">
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm cursor-pointer hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="!canBulkEdit"
+              >
+                <VsxIcon iconName="Link" class="size-4" />
+                <span>Connect</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" side="top">
+              <DropdownMenuItem
+                v-if="canBulkConnectToTask"
+                @select="openConnect('task', selectedItems)"
+              >
+                <VsxIcon iconName="TaskSquare" class="size-4 text-sky-600" />
+                <span>Connect to Task</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                v-if="canBulkConnectToSegment"
+                @select="openConnect('segment', selectedItems)"
+              >
+                <VsxIcon iconName="Element4" class="size-4 text-violet-600" />
+                <span>Connect to Segment</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <span class="w-px h-6 bg-border mx-1" />
+        </template>
+
         <button
           type="button"
           class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-destructive cursor-pointer hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1899,6 +2007,15 @@ async function bulkDelete(): Promise<void> {
       :items="selectedItems"
       :project="project"
       @applied="onBulkUpdateApplied"
+    />
+
+    <ConnectParentDialog
+      v-if="project"
+      v-model:open="connectDialogOpen"
+      :items="connectItems"
+      :project="project"
+      :target-type="connectTargetType"
+      @applied="onConnectApplied"
     />
   </div>
 </template>

@@ -510,12 +510,101 @@ function onRowClick(row: T): void {
       {{ errorMessage }}
     </p>
 
-    <p
+    <!-- Skeleton loader -->
+    <div
       v-if="loading && items.length === 0"
-      class="text-sm text-muted-foreground"
+      class="flex-1 min-h-0 rounded-lg border bg-card overflow-hidden"
     >
-      Loading…
-    </p>
+      <table
+        class="w-full text-sm border-separate border-spacing-0 table-fixed"
+        :style="{ minWidth: `${tableMinWidth}px` }"
+      >
+        <colgroup>
+          <col
+            v-for="col in activeColumns"
+            :key="`sk-cg-${col.key}`"
+            :style="
+              col.key === stretchKey
+                ? undefined
+                : { width: `${colWidth(col.key)}px` }
+            "
+          />
+        </colgroup>
+        <thead class="text-muted-foreground">
+          <tr>
+            <th
+              v-for="col in activeColumns"
+              :key="`sk-th-${col.key}`"
+              class="sticky top-0 z-10 bg-[#f6f6f6] text-left font-medium px-4 py-2 border-r last:border-r-0 whitespace-nowrap [box-shadow:0_1px_0_var(--border)]"
+            >
+              <span class="text-xs">{{ col.label }}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="i in 8"
+            :key="`sk-row-${i}`"
+            class="border-t [&>td]:border-t"
+          >
+            <td
+              v-for="(col, idx) in activeColumns"
+              :key="`sk-td-${col.key}-${i}`"
+              class="px-4 align-middle h-13 border-r last:border-r-0"
+            >
+              <!-- Summary cell: avatar circle + stacked lines -->
+              <div
+                v-if="col.key === 'summary'"
+                class="flex items-center gap-3"
+              >
+                <div class="size-6 rounded-md bg-muted animate-pulse shrink-0" />
+                <div class="flex flex-col gap-1.5 flex-1 min-w-0">
+                  <div
+                    class="h-3 rounded bg-muted animate-pulse"
+                    :style="{ width: `${55 + ((i * 7) % 35)}%` }"
+                  />
+                  <div
+                    class="h-2 rounded bg-muted/70 animate-pulse"
+                    :style="{ width: `${25 + ((i * 5) % 20)}%` }"
+                  />
+                </div>
+              </div>
+
+              <!-- Assignee/Reporter/Created-by: avatar + text -->
+              <div
+                v-else-if="
+                  col.key === 'assignee' ||
+                  col.key === 'reporter' ||
+                  col.key === 'createdBy'
+                "
+                class="flex items-center gap-2"
+              >
+                <div
+                  class="size-6 rounded-full bg-muted animate-pulse shrink-0"
+                />
+                <div
+                  class="h-3 rounded bg-muted animate-pulse"
+                  :style="{ width: `${50 + ((i * idx * 3) % 25)}%` }"
+                />
+              </div>
+
+              <!-- Badge-style cells: state/priority -->
+              <div
+                v-else-if="col.key === 'state' || col.key === 'priority'"
+                class="h-5 w-16 rounded bg-muted animate-pulse"
+              />
+
+              <!-- Generic line -->
+              <div
+                v-else
+                class="h-3 rounded bg-muted animate-pulse"
+                :style="{ width: `${40 + ((i * (idx + 1) * 7) % 40)}%` }"
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <div
       v-else-if="items.length === 0"
