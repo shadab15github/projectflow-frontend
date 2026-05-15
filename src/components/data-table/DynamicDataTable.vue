@@ -696,7 +696,9 @@ function onRowClick(row: T): void {
                 v-if="col.key === SELECT_KEY"
                 class="p-0 align-middle h-13 border-r last:border-r-0 text-center sticky left-0 z-10"
                 :class="
-                  isRowSelected(getRowId(row)) ? 'bg-primary/5' : 'bg-card'
+                  isRowSelected(getRowId(row))
+                    ? 'bg-primary/5 backdrop-blur-2xl'
+                    : 'bg-card'
                 "
                 @click.stop
               >
@@ -713,7 +715,9 @@ function onRowClick(row: T): void {
                 v-else-if="col.key === ACTIONS_KEY"
                 class="px-2 py-2.5 border-r last:border-r-0 text-center sticky right-0 z-10 [box-shadow:-1px_0_0_var(--border)]"
                 :class="
-                  isRowSelected(getRowId(row)) ? 'bg-primary/5' : 'bg-card'
+                  isRowSelected(getRowId(row))
+                    ? 'bg-primary/5 backdrop-blur-2xl'
+                    : 'bg-card'
                 "
                 @click.stop
               >
@@ -746,7 +750,7 @@ function onRowClick(row: T): void {
                   col.cellClass ?? '',
                   isFrozen(col.key)
                     ? isRowSelected(getRowId(row))
-                      ? 'sticky z-10 bg-primary/5'
+                      ? 'sticky z-10 bg-primary/5 backdrop-blur-2xl'
                       : 'sticky z-10 bg-card'
                     : '',
                 ]"

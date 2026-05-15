@@ -763,788 +763,976 @@ function onRowClick(row: FlatRow): void {
 function getRowId(row: FlatRow): string {
   return row.item._id;
 }
+
+// --- Bulk selection actions ---
+const selectedCount = computed<number>(() => selectedRows.value.size);
+
+const selectedItems = computed<WorkItem[]>(() =>
+  items.value.filter((it) => selectedRows.value.has(it._id)),
+);
+
+const canBulkEdit = computed<boolean>(() =>
+  selectedItems.value.every((it) => canEditItem(it)),
+);
+
+function selectAllRows(): void {
+  const next = new Set<string>();
+  for (const row of flatRows.value) next.add(row.item._id);
+  selectedRows.value = next;
+}
+
+function clearSelection(): void {
+  selectedRows.value = new Set();
+}
+
+async function bulkChangeStatus(state: WorkItemState): Promise<void> {
+  const targets = selectedItems.value.filter(
+    (it) => canEditItem(it) && it.state !== state,
+  );
+  if (targets.length === 0) return;
+  loadError.value = null;
+  try {
+    await Promise.all(
+      targets.map((it) => workItemService.updateWorkItem(it._id, { state })),
+    );
+    await fetchPage();
+    void reloadTasks();
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      loadError.value =
+        (err.response?.data as { message?: string } | undefined)?.message ??
+        "Failed to update work items.";
+    } else {
+      loadError.value = "Failed to update work items.";
+    }
+  }
+}
+
+async function bulkDelete(): Promise<void> {
+  const ids = [...selectedRows.value];
+  if (ids.length === 0) return;
+  const ok = window.confirm(
+    `Delete ${ids.length} work item${ids.length === 1 ? "" : "s"}? This cannot be undone.`,
+  );
+  if (!ok) return;
+  loadError.value = null;
+  try {
+    await Promise.all(ids.map((id) => workItemService.deleteWorkItem(id)));
+    selectedRows.value = new Set();
+    await fetchPage();
+    void reloadTasks();
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      loadError.value =
+        (err.response?.data as { message?: string } | undefined)?.message ??
+        "Failed to delete work items.";
+    } else {
+      loadError.value = "Failed to delete work items.";
+    }
+  }
+}
 </script>
 
 <template>
-  <DynamicDataTable
-    v-model:page="page"
-    v-model:limit="limit"
-    v-model:sort-by="sortBy"
-    v-model:sort-dir="sortDir"
-    v-model:search="search"
-    v-model:selected-rows="selectedRows"
-    :items="flatRows"
-    :total="total"
-    :loading="loading"
-    :error-message="tableError"
-    :columns="columns"
-    :get-row-id="getRowId"
-    search-placeholder="Search work items…"
-    empty-message="No work items yet."
-    no-filters-empty-message="No items match the selected filters."
-    @row-click="onRowClick"
-  >
-    <!-- Member avatars + entity-specific filters + Create button -->
-    <template #toolbar-right>
-      <div
-        class="flex items-center -space-x-2"
-        aria-label="Filter by assignee (multi-select)"
-      >
-        <button
-          type="button"
-          class="relative size-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
-          :class="
-            isAssigneeSelected('none') ? 'ring-primary z-10' : 'ring-background'
-          "
-          title="Filter: Unassigned"
-          @click="selectAssignee('none')"
+  <div class="relative h-full">
+    <DynamicDataTable
+      v-model:page="page"
+      v-model:limit="limit"
+      v-model:sort-by="sortBy"
+      v-model:sort-dir="sortDir"
+      v-model:search="search"
+      v-model:selected-rows="selectedRows"
+      :items="flatRows"
+      :total="total"
+      :loading="loading"
+      :error-message="tableError"
+      :columns="columns"
+      :get-row-id="getRowId"
+      search-placeholder="Search work items…"
+      empty-message="No work items yet."
+      no-filters-empty-message="No items match the selected filters."
+      @row-click="onRowClick"
+    >
+      <!-- Member avatars + entity-specific filters + Create button -->
+      <template #toolbar-right>
+        <div
+          class="flex items-center -space-x-2"
+          aria-label="Filter by assignee (multi-select)"
         >
-          <VsxIcon iconName="User" class="size-4" />
-        </button>
-        <button
-          v-for="u in visibleMembers"
-          :key="u._id"
-          type="button"
-          class="relative rounded-full transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
-          :class="
-            isAssigneeSelected(u._id) ? 'ring-primary z-10' : 'ring-background'
-          "
-          :title="`Filter: ${u.name}`"
-          @click="selectAssignee(u._id)"
-        >
-          <Avatar class="size-8">
-            <AvatarFallback class="text-[10px]">
-              {{ userStore.initials(u._id) }}
-            </AvatarFallback>
-          </Avatar>
-        </button>
-        <span
-          v-if="extraMembers > 0"
-          class="size-8 ring-2 ring-background rounded-full bg-muted text-[11px] flex items-center justify-center text-muted-foreground"
-          :title="`${extraMembers} more`"
-        >
-          +{{ extraMembers }}
-        </span>
-      </div>
+          <button
+            type="button"
+            class="relative size-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
+            :class="
+              isAssigneeSelected('none')
+                ? 'ring-primary z-10'
+                : 'ring-background'
+            "
+            title="Filter: Unassigned"
+            @click="selectAssignee('none')"
+          >
+            <VsxIcon iconName="User" class="size-4" />
+          </button>
+          <button
+            v-for="u in visibleMembers"
+            :key="u._id"
+            type="button"
+            class="relative rounded-full transition-all hover:scale-110 hover:z-10 cursor-pointer ring-2"
+            :class="
+              isAssigneeSelected(u._id)
+                ? 'ring-primary z-10'
+                : 'ring-background'
+            "
+            :title="`Filter: ${u.name}`"
+            @click="selectAssignee(u._id)"
+          >
+            <Avatar class="size-8">
+              <AvatarFallback class="text-[10px]">
+                {{ userStore.initials(u._id) }}
+              </AvatarFallback>
+            </Avatar>
+          </button>
+          <span
+            v-if="extraMembers > 0"
+            class="size-8 ring-2 ring-background rounded-full bg-muted text-[11px] flex items-center justify-center text-muted-foreground"
+            :title="`${extraMembers} more`"
+          >
+            +{{ extraMembers }}
+          </span>
+        </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger as-child>
-          <Button variant="outline" size="sm" class="gap-1.5">
-            <VsxIcon iconName="Filter" class="size-4" />
-            <span>Filter</span>
-            <span
-              v-if="activeFilterCount > 0"
-              class="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1 text-[10px] rounded-full bg-primary text-primary-foreground"
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="outline" size="sm" class="gap-1.5">
+              <VsxIcon iconName="Filter" class="size-4" />
+              <span>Filter</span>
+              <span
+                v-if="activeFilterCount > 0"
+                class="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1 text-[10px] rounded-full bg-primary text-primary-foreground"
+              >
+                {{ activeFilterCount }}
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            class="min-w-56 max-h-96 overflow-y-auto"
+          >
+            <DropdownMenuLabel>Type</DropdownMenuLabel>
+            <DropdownMenuItem
+              v-for="opt in TYPE_OPTIONS"
+              :key="`type-${opt.value}`"
+              :class="typeFilter === opt.value ? 'font-medium' : ''"
+              @select="typeFilter = opt.value"
             >
-              {{ activeFilterCount }}
-            </span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          class="min-w-56 max-h-96 overflow-y-auto"
-        >
-          <DropdownMenuLabel>Type</DropdownMenuLabel>
-          <DropdownMenuItem
-            v-for="opt in TYPE_OPTIONS"
-            :key="`type-${opt.value}`"
-            :class="typeFilter === opt.value ? 'font-medium' : ''"
-            @select="typeFilter = opt.value"
-          >
-            <VsxIcon
-              iconName="TickCircle"
-              class="size-4"
-              :class="
-                typeFilter === opt.value
-                  ? 'opacity-100 text-primary'
-                  : 'opacity-0'
-              "
-            />
-            <span>{{ opt.label }}</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>State</DropdownMenuLabel>
-          <DropdownMenuItem
-            v-for="opt in STATE_OPTIONS"
-            :key="`state-${opt.value}`"
-            :class="stateFilter === opt.value ? 'font-medium' : ''"
-            @select="stateFilter = opt.value"
-          >
-            <VsxIcon
-              iconName="TickCircle"
-              class="size-4"
-              :class="
-                stateFilter === opt.value
-                  ? 'opacity-100 text-primary'
-                  : 'opacity-0'
-              "
-            />
-            <span>{{ opt.label }}</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Priority</DropdownMenuLabel>
-          <DropdownMenuItem
-            v-for="opt in PRIORITY_OPTIONS"
-            :key="`prio-${opt.value}`"
-            :class="priorityFilter === opt.value ? 'font-medium' : ''"
-            @select="priorityFilter = opt.value"
-          >
-            <VsxIcon
-              iconName="TickCircle"
-              class="size-4"
-              :class="
-                priorityFilter === opt.value
-                  ? 'opacity-100 text-primary'
-                  : 'opacity-0'
-              "
-            />
-            <span>{{ opt.label }}</span>
-          </DropdownMenuItem>
-          <template v-if="activeFilterCount > 0">
-            <DropdownMenuSeparator />
-            <DropdownMenuItem @select="clearFilters">
-              <VsxIcon iconName="CloseCircle" class="size-4" />
-              <span>Clear filters</span>
+              <VsxIcon
+                iconName="TickCircle"
+                class="size-4"
+                :class="
+                  typeFilter === opt.value
+                    ? 'opacity-100 text-primary'
+                    : 'opacity-0'
+                "
+              />
+              <span>{{ opt.label }}</span>
             </DropdownMenuItem>
-          </template>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Button
-        v-if="canCreateTask"
-        size="sm"
-        class="gap-1.5"
-        @click="openCreateTask"
-      >
-        <VsxIcon iconName="Add" class="size-4" />
-        Create Task
-      </Button>
-    </template>
-
-    <!-- More-menu (hide-done, hierarchy, exports) -->
-    <template #more-menu>
-      <div
-        class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none cursor-pointer hover:bg-accent"
-        @click="hideDone = !hideDone"
-      >
-        <span>
-          {{ hideDone ? "Show done work items" : "Hide done work items" }}
-        </span>
-        <Switch
-          tabindex="-1"
-          :model-value="hideDone"
-          class="pointer-events-none"
-        />
-      </div>
-      <div
-        class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none cursor-pointer hover:bg-accent"
-        @click="showHierarchy = !showHierarchy"
-      >
-        <span>
-          {{ showHierarchy ? "Hide hierarchy" : "Show hierarchy" }}
-        </span>
-        <Switch
-          tabindex="-1"
-          :model-value="showHierarchy"
-          class="pointer-events-none"
-        />
-      </div>
-      <DropdownMenuSeparator />
-      <DropdownMenuLabel>Export</DropdownMenuLabel>
-      <DropdownMenuItem @select="exportAs('csv')">
-        <VsxIcon iconName="DocumentDownload" class="size-4" />
-        <span>Export as CSV</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem @select="exportAs('json')">
-        <VsxIcon iconName="DocumentDownload" class="size-4" />
-        <span>Export as JSON</span>
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem @select="notImplemented('Import from CSV')">
-        <VsxIcon iconName="DocumentUpload" class="size-4" />
-        <span>Import work items from CSV</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem @select="notImplemented('Format rules')">
-        <VsxIcon iconName="Brush2" class="size-4" />
-        <span>Format rules</span>
-      </DropdownMenuItem>
-    </template>
-
-    <!-- Active filter chips -->
-    <template #filter-chips>
-      <div
-        v-if="activeFilterCount > 0"
-        class="shrink-0 flex flex-wrap items-center gap-1.5 text-xs"
-      >
-        <span class="text-muted-foreground">Filters:</span>
-        <span
-          v-if="typeFilter !== 'ALL'"
-          class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
-        >
-          {{ typeFilterLabel }}
-          <button
-            type="button"
-            class="hover:text-destructive"
-            @click="typeFilter = 'ALL'"
-          >
-            <VsxIcon iconName="CloseCircle" class="size-3" />
-          </button>
-        </span>
-        <span
-          v-if="stateFilter !== 'ALL'"
-          class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
-        >
-          {{ stateFilterLabel }}
-          <button
-            type="button"
-            class="hover:text-destructive"
-            @click="stateFilter = 'ALL'"
-          >
-            <VsxIcon iconName="CloseCircle" class="size-3" />
-          </button>
-        </span>
-        <span
-          v-if="priorityFilter !== 'ALL'"
-          class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
-        >
-          {{ priorityFilterLabel }}
-          <button
-            type="button"
-            class="hover:text-destructive"
-            @click="priorityFilter = 'ALL'"
-          >
-            <VsxIcon iconName="CloseCircle" class="size-3" />
-          </button>
-        </span>
-        <span
-          v-if="assigneeFilter.size > 0"
-          class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
-        >
-          Assignee: {{ assigneeFilterLabel }}
-          <button
-            type="button"
-            class="hover:text-destructive"
-            @click="clearAssigneeFilter"
-          >
-            <VsxIcon iconName="CloseCircle" class="size-3" />
-          </button>
-        </span>
-      </div>
-    </template>
-
-    <!-- Summary cell (with hierarchy tree) -->
-    <template #cell-summary="{ row }">
-      <div
-        class="relative flex items-center h-13 pr-2"
-        :style="{ paddingLeft: `${row.depth * 32}px` }"
-      >
-        <svg
-          v-if="row.depth > 0 || (row.expanded && row.hasChildren)"
-          :width="row.depth * 32 + 32"
-          :height="56"
-          class="absolute left-0 top-0 text-border pointer-events-none overflow-visible pl-5"
-        >
-          <template v-if="row.depth > 0">
-            <template
-              v-for="(hasLine, i) in row.ancestorLines.slice(1)"
-              :key="`a-${i}`"
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>State</DropdownMenuLabel>
+            <DropdownMenuItem
+              v-for="opt in STATE_OPTIONS"
+              :key="`state-${opt.value}`"
+              :class="stateFilter === opt.value ? 'font-medium' : ''"
+              @select="stateFilter = opt.value"
             >
+              <VsxIcon
+                iconName="TickCircle"
+                class="size-4"
+                :class="
+                  stateFilter === opt.value
+                    ? 'opacity-100 text-primary'
+                    : 'opacity-0'
+                "
+              />
+              <span>{{ opt.label }}</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Priority</DropdownMenuLabel>
+            <DropdownMenuItem
+              v-for="opt in PRIORITY_OPTIONS"
+              :key="`prio-${opt.value}`"
+              :class="priorityFilter === opt.value ? 'font-medium' : ''"
+              @select="priorityFilter = opt.value"
+            >
+              <VsxIcon
+                iconName="TickCircle"
+                class="size-4"
+                :class="
+                  priorityFilter === opt.value
+                    ? 'opacity-100 text-primary'
+                    : 'opacity-0'
+                "
+              />
+              <span>{{ opt.label }}</span>
+            </DropdownMenuItem>
+            <template v-if="activeFilterCount > 0">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem @select="clearFilters">
+                <VsxIcon iconName="CloseCircle" class="size-4" />
+                <span>Clear filters</span>
+              </DropdownMenuItem>
+            </template>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Button
+          v-if="canCreateTask"
+          size="sm"
+          class="gap-1.5"
+          @click="openCreateTask"
+        >
+          <VsxIcon iconName="Add" class="size-4" />
+          Create Task
+        </Button>
+      </template>
+
+      <!-- More-menu (hide-done, hierarchy, exports) -->
+      <template #more-menu>
+        <div
+          class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none cursor-pointer hover:bg-accent"
+          @click="hideDone = !hideDone"
+        >
+          <span>
+            {{ hideDone ? "Show done work items" : "Hide done work items" }}
+          </span>
+          <Switch
+            tabindex="-1"
+            :model-value="hideDone"
+            class="pointer-events-none"
+          />
+        </div>
+        <div
+          class="relative flex items-center justify-between gap-3 px-2 py-1.5 text-sm rounded-sm select-none cursor-pointer hover:bg-accent"
+          @click="showHierarchy = !showHierarchy"
+        >
+          <span>
+            {{ showHierarchy ? "Hide hierarchy" : "Show hierarchy" }}
+          </span>
+          <Switch
+            tabindex="-1"
+            :model-value="showHierarchy"
+            class="pointer-events-none"
+          />
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Export</DropdownMenuLabel>
+        <DropdownMenuItem @select="exportAs('csv')">
+          <VsxIcon iconName="DocumentDownload" class="size-4" />
+          <span>Export as CSV</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem @select="exportAs('json')">
+          <VsxIcon iconName="DocumentDownload" class="size-4" />
+          <span>Export as JSON</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem @select="notImplemented('Import from CSV')">
+          <VsxIcon iconName="DocumentUpload" class="size-4" />
+          <span>Import work items from CSV</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem @select="notImplemented('Format rules')">
+          <VsxIcon iconName="Brush2" class="size-4" />
+          <span>Format rules</span>
+        </DropdownMenuItem>
+      </template>
+
+      <!-- Active filter chips -->
+      <template #filter-chips>
+        <div
+          v-if="activeFilterCount > 0"
+          class="shrink-0 flex flex-wrap items-center gap-1.5 text-xs"
+        >
+          <span class="text-muted-foreground">Filters:</span>
+          <span
+            v-if="typeFilter !== 'ALL'"
+            class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
+          >
+            {{ typeFilterLabel }}
+            <button
+              type="button"
+              class="hover:text-destructive"
+              @click="typeFilter = 'ALL'"
+            >
+              <VsxIcon iconName="CloseCircle" class="size-3" />
+            </button>
+          </span>
+          <span
+            v-if="stateFilter !== 'ALL'"
+            class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
+          >
+            {{ stateFilterLabel }}
+            <button
+              type="button"
+              class="hover:text-destructive"
+              @click="stateFilter = 'ALL'"
+            >
+              <VsxIcon iconName="CloseCircle" class="size-3" />
+            </button>
+          </span>
+          <span
+            v-if="priorityFilter !== 'ALL'"
+            class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
+          >
+            {{ priorityFilterLabel }}
+            <button
+              type="button"
+              class="hover:text-destructive"
+              @click="priorityFilter = 'ALL'"
+            >
+              <VsxIcon iconName="CloseCircle" class="size-3" />
+            </button>
+          </span>
+          <span
+            v-if="assigneeFilter.size > 0"
+            class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5"
+          >
+            Assignee: {{ assigneeFilterLabel }}
+            <button
+              type="button"
+              class="hover:text-destructive"
+              @click="clearAssigneeFilter"
+            >
+              <VsxIcon iconName="CloseCircle" class="size-3" />
+            </button>
+          </span>
+        </div>
+      </template>
+
+      <!-- Summary cell (with hierarchy tree) -->
+      <template #cell-summary="{ row }">
+        <div
+          class="relative flex items-center h-13 pr-2"
+          :style="{ paddingLeft: `${row.depth * 32}px` }"
+        >
+          <svg
+            v-if="row.depth > 0 || (row.expanded && row.hasChildren)"
+            :width="row.depth * 32 + 32"
+            :height="56"
+            class="absolute left-0 top-0 text-border pointer-events-none overflow-visible pl-5"
+          >
+            <template v-if="row.depth > 0">
+              <template
+                v-for="(hasLine, i) in row.ancestorLines.slice(1)"
+                :key="`a-${i}`"
+              >
+                <line
+                  v-if="hasLine"
+                  :x1="i * 32 + 16"
+                  :y1="0"
+                  :x2="i * 32 + 16"
+                  :y2="56"
+                  stroke="currentColor"
+                  stroke-width="1"
+                />
+              </template>
+              <path
+                :d="`M ${(row.depth - 1) * 32 + 16} 0 L ${(row.depth - 1) * 32 + 16} 8 Q ${(row.depth - 1) * 32 + 16} 24, ${row.depth * 32} 24 L ${row.depth * 32 + 4} 24`"
+                stroke="currentColor"
+                stroke-width="1"
+                fill="none"
+                stroke-linecap="round"
+              />
               <line
-                v-if="hasLine"
-                :x1="i * 32 + 16"
-                :y1="0"
-                :x2="i * 32 + 16"
+                v-if="!row.isLastChild"
+                :x1="(row.depth - 1) * 32 + 16"
+                :y1="14"
+                :x2="(row.depth - 1) * 32 + 16"
                 :y2="56"
                 stroke="currentColor"
                 stroke-width="1"
               />
             </template>
-            <path
-              :d="`M ${(row.depth - 1) * 32 + 16} 0 L ${(row.depth - 1) * 32 + 16} 8 Q ${(row.depth - 1) * 32 + 16} 24, ${row.depth * 32} 24 L ${row.depth * 32 + 4} 24`"
-              stroke="currentColor"
-              stroke-width="1"
-              fill="none"
-              stroke-linecap="round"
-            />
             <line
-              v-if="!row.isLastChild"
-              :x1="(row.depth - 1) * 32 + 16"
-              :y1="14"
-              :x2="(row.depth - 1) * 32 + 16"
+              v-if="row.expanded && row.hasChildren"
+              :x1="row.depth * 32 + 16"
+              :y1="24"
+              :x2="row.depth * 32 + 16"
               :y2="56"
               stroke="currentColor"
               stroke-width="1"
             />
-          </template>
-          <line
-            v-if="row.expanded && row.hasChildren"
-            :x1="row.depth * 32 + 16"
-            :y1="24"
-            :x2="row.depth * 32 + 16"
-            :y2="56"
-            stroke="currentColor"
-            stroke-width="1"
-          />
-        </svg>
-        <button
-          v-if="row.hasChildren"
-          type="button"
-          class="relative cursor-pointer ml-6 inline-flex items-center justify-center size-6 rounded hover:bg-accent border bg-card text-muted-foreground"
-          :aria-label="row.expanded ? 'Collapse' : 'Expand'"
-          @click.stop="toggleExpand(row.item._id)"
-        >
-          <VsxIcon
-            iconName="ArrowRight2"
-            class="size-3.5 transition-transform"
-            :class="row.expanded ? 'rotate-90' : ''"
-          />
-        </button>
-        <span v-else class="inline-block size-6"></span>
-        <span
-          class="inline-flex items-center gap-2 min-w-0"
-          :class="
-            showHierarchy &&
-            ((row.hasChildren && 'ml-3') || (row.depth > 0 && 'ml-2'))
-          "
-        >
-          <VsxIcon
-            :iconName="TYPE_META[row.item.type].icon"
-            class="size-5 shrink-0"
-            :class="TYPE_META[row.item.type].text"
-          />
-          <span class="flex flex-col min-w-0 leading-tight">
-            <span class="truncate">{{ row.item.title }}</span>
-            <span
-              class="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground"
-            >
-              <span class="font-mono text-muted-foreground">
-                {{ row.item.key }}
-              </span>
-              <template v-if="itemComponents(row.item).length">
-                <span aria-hidden="true">·</span>
-                <span
-                  v-for="c in itemComponents(row.item)"
-                  :key="c._id"
-                  class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
-                >
-                  {{ c.name }}
-                </span>
-              </template>
-            </span>
-          </span>
-        </span>
-      </div>
-    </template>
-
-    <template #cell-type="{ row }">
-      <span class="inline-flex items-center gap-1.5 text-xs">
-        <VsxIcon
-          :iconName="TYPE_META[row.item.type].icon"
-          class="size-4 shrink-0"
-          :class="TYPE_META[row.item.type].text"
-        />
-        {{ TYPE_META[row.item.type].label }}
-      </span>
-    </template>
-
-    <template #cell-key="{ row }">
-      <span class="font-mono text-xs text-muted-foreground">
-        {{ row.item.key }}
-      </span>
-    </template>
-
-    <template #cell-state="{ row }">
-      <DropdownMenu v-if="canEditItem(row.item)">
-        <DropdownMenuTrigger as-child>
+          </svg>
           <button
+            v-if="row.hasChildren"
             type="button"
-            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
-            @click.stop
+            class="relative cursor-pointer ml-6 inline-flex items-center justify-center size-6 rounded hover:bg-accent border bg-card text-muted-foreground"
+            :aria-label="row.expanded ? 'Collapse' : 'Expand'"
+            @click.stop="toggleExpand(row.item._id)"
           >
-            <span
-              :class="[
-                'inline-block rounded px-2 py-0.5 text-xs',
-                STATE_BADGE[row.item.state],
-              ]"
-            >
-              {{ STATE_LABELS[row.item.state] }}
-            </span>
             <VsxIcon
-              iconName="ArrowDown2"
-              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+              iconName="ArrowRight2"
+              class="size-3.5 transition-transform"
+              :class="row.expanded ? 'rotate-90' : ''"
             />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" @click.stop>
-          <DropdownMenuItem
-            v-for="s in EDITABLE_STATES"
-            :key="s.value"
-            @select="changeState(row.item, s.value)"
+          <span v-else class="inline-block size-6"></span>
+          <span
+            class="inline-flex items-center gap-2 min-w-0"
+            :class="
+              showHierarchy &&
+              ((row.hasChildren && 'ml-3') || (row.depth > 0 && 'ml-2'))
+            "
           >
-            <span class="inline-flex items-center gap-2">
-              <span :class="['size-2 rounded-full', STATE_DOT[s.value]]" />
-              {{ s.label }}
-            </span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <div v-else class="flex items-center h-13 px-4">
-        <span
-          :class="[
-            'inline-block rounded px-2 py-0.5 text-xs',
-            STATE_BADGE[row.item.state],
-          ]"
-        >
-          {{ STATE_LABELS[row.item.state] }}
-        </span>
-      </div>
-    </template>
-
-    <template #cell-priority="{ row }">
-      <DropdownMenu v-if="canEditItem(row.item)">
-        <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
-            @click.stop
-          >
-            <span
-              :class="[
-                'inline-block rounded px-2 py-0.5 text-xs capitalize',
-                PRIORITY_BADGE[row.item.priority],
-              ]"
-            >
-              {{ row.item.priority }}
-            </span>
             <VsxIcon
-              iconName="ArrowDown2"
-              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+              :iconName="TYPE_META[row.item.type].icon"
+              class="size-5 shrink-0"
+              :class="TYPE_META[row.item.type].text"
             />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" @click.stop>
-          <DropdownMenuItem
-            v-for="p in EDITABLE_PRIORITIES"
-            :key="p.value"
-            @select="changePriority(row.item, p.value)"
-          >
-            <span
-              :class="[
-                'inline-block size-2 rounded-full',
-                p.value === 'urgent'
-                  ? 'bg-red-500'
-                  : p.value === 'high'
-                    ? 'bg-amber-500'
-                    : p.value === 'medium'
-                      ? 'bg-blue-500'
-                      : 'bg-slate-400',
-              ]"
-            />
-            <span>{{ p.label }}</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <div v-else class="flex items-center h-13 px-4">
-        <span
-          :class="[
-            'inline-block rounded px-2 py-0.5 text-xs capitalize',
-            PRIORITY_BADGE[row.item.priority],
-          ]"
-        >
-          {{ row.item.priority }}
-        </span>
-      </div>
-    </template>
-
-    <template #cell-assignee="{ row }">
-      <DropdownMenu v-if="canEditItem(row.item)">
-        <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
-            @click.stop
-          >
-            <span class="flex items-center gap-2 min-w-0">
-              <template v-if="row.item.assigneeId">
-                <Avatar class="size-6 shrink-0">
-                  <AvatarFallback class="text-[10px]">
-                    {{ memberInitials(row.item.assigneeId) }}
-                  </AvatarFallback>
-                </Avatar>
-                <span class="text-xs truncate">
-                  {{ memberName(row.item.assigneeId) }}
+            <span class="flex flex-col min-w-0 leading-tight">
+              <span class="truncate">{{ row.item.title }}</span>
+              <span
+                class="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground"
+              >
+                <span class="font-mono text-muted-foreground">
+                  {{ row.item.key }}
                 </span>
-              </template>
-              <span v-else class="text-xs text-muted-foreground">
-                Unassigned
+                <template v-if="itemComponents(row.item).length">
+                  <span aria-hidden="true">·</span>
+                  <span
+                    v-for="c in itemComponents(row.item)"
+                    :key="c._id"
+                    class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+                  >
+                    {{ c.name }}
+                  </span>
+                </template>
               </span>
             </span>
-            <VsxIcon
-              iconName="ArrowDown2"
-              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
-            />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          class="max-h-72 overflow-y-auto"
-          @click.stop
-        >
-          <DropdownMenuItem @select="changeAssignee(row.item, null)">
-            <VsxIcon iconName="User" class="size-4" />
-            <span>Unassigned</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            v-for="u in projectMemberUsers"
-            :key="u._id"
-            @select="changeAssignee(row.item, u._id)"
-          >
-            <Avatar class="size-5">
-              <AvatarFallback class="text-[9px]">
-                {{ userStore.initials(u._id) }}
-              </AvatarFallback>
-            </Avatar>
-            <span>{{ u.name }}</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <div v-else class="flex items-center h-13 px-4">
-        <div v-if="row.item.assigneeId" class="flex items-center gap-2 min-w-0">
-          <Avatar class="size-6 shrink-0">
-            <AvatarFallback class="text-[10px]">
-              {{ memberInitials(row.item.assigneeId) }}
-            </AvatarFallback>
-          </Avatar>
-          <span class="text-xs truncate">
-            {{ memberName(row.item.assigneeId) }}
           </span>
         </div>
-        <span v-else class="text-xs text-muted-foreground">Unassigned</span>
-      </div>
-    </template>
+      </template>
 
-    <template #cell-reporter="{ row }">
-      <DropdownMenu v-if="canEditItem(row.item)">
-        <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+      <template #cell-type="{ row }">
+        <span class="inline-flex items-center gap-1.5 text-xs">
+          <VsxIcon
+            :iconName="TYPE_META[row.item.type].icon"
+            class="size-4 shrink-0"
+            :class="TYPE_META[row.item.type].text"
+          />
+          {{ TYPE_META[row.item.type].label }}
+        </span>
+      </template>
+
+      <template #cell-key="{ row }">
+        <span class="font-mono text-xs text-muted-foreground">
+          {{ row.item.key }}
+        </span>
+      </template>
+
+      <template #cell-state="{ row }">
+        <DropdownMenu v-if="canEditItem(row.item)">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+              @click.stop
+            >
+              <span
+                :class="[
+                  'inline-block rounded px-2 py-0.5 text-xs',
+                  STATE_BADGE[row.item.state],
+                ]"
+              >
+                {{ STATE_LABELS[row.item.state] }}
+              </span>
+              <VsxIcon
+                iconName="ArrowDown2"
+                class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" @click.stop>
+            <DropdownMenuItem
+              v-for="s in EDITABLE_STATES"
+              :key="s.value"
+              @select="changeState(row.item, s.value)"
+            >
+              <span class="inline-flex items-center gap-2">
+                <span :class="['size-2 rounded-full', STATE_DOT[s.value]]" />
+                {{ s.label }}
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div v-else class="flex items-center h-13 px-4">
+          <span
+            :class="[
+              'inline-block rounded px-2 py-0.5 text-xs',
+              STATE_BADGE[row.item.state],
+            ]"
+          >
+            {{ STATE_LABELS[row.item.state] }}
+          </span>
+        </div>
+      </template>
+
+      <template #cell-priority="{ row }">
+        <DropdownMenu v-if="canEditItem(row.item)">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+              @click.stop
+            >
+              <span
+                :class="[
+                  'inline-block rounded px-2 py-0.5 text-xs capitalize',
+                  PRIORITY_BADGE[row.item.priority],
+                ]"
+              >
+                {{ row.item.priority }}
+              </span>
+              <VsxIcon
+                iconName="ArrowDown2"
+                class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" @click.stop>
+            <DropdownMenuItem
+              v-for="p in EDITABLE_PRIORITIES"
+              :key="p.value"
+              @select="changePriority(row.item, p.value)"
+            >
+              <span
+                :class="[
+                  'inline-block size-2 rounded-full',
+                  p.value === 'urgent'
+                    ? 'bg-red-500'
+                    : p.value === 'high'
+                      ? 'bg-amber-500'
+                      : p.value === 'medium'
+                        ? 'bg-blue-500'
+                        : 'bg-slate-400',
+                ]"
+              />
+              <span>{{ p.label }}</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div v-else class="flex items-center h-13 px-4">
+          <span
+            :class="[
+              'inline-block rounded px-2 py-0.5 text-xs capitalize',
+              PRIORITY_BADGE[row.item.priority],
+            ]"
+          >
+            {{ row.item.priority }}
+          </span>
+        </div>
+      </template>
+
+      <template #cell-assignee="{ row }">
+        <DropdownMenu v-if="canEditItem(row.item)">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+              @click.stop
+            >
+              <span class="flex items-center gap-2 min-w-0">
+                <template v-if="row.item.assigneeId">
+                  <Avatar class="size-6 shrink-0">
+                    <AvatarFallback class="text-[10px]">
+                      {{ memberInitials(row.item.assigneeId) }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span class="text-xs truncate">
+                    {{ memberName(row.item.assigneeId) }}
+                  </span>
+                </template>
+                <span v-else class="text-xs text-muted-foreground">
+                  Unassigned
+                </span>
+              </span>
+              <VsxIcon
+                iconName="ArrowDown2"
+                class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            class="max-h-72 overflow-y-auto"
             @click.stop
           >
-            <span class="flex items-center gap-2 min-w-0">
-              <template v-if="row.item.reporterId">
-                <Avatar class="size-6 shrink-0">
-                  <AvatarFallback class="text-[10px]">
-                    {{ memberInitials(row.item.reporterId) }}
-                  </AvatarFallback>
-                </Avatar>
-                <span class="text-xs truncate">
-                  {{ memberName(row.item.reporterId) }}
-                </span>
-              </template>
-              <span v-else class="text-xs text-muted-foreground">—</span>
-            </span>
-            <VsxIcon
-              iconName="ArrowDown2"
-              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
-            />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          class="max-h-72 overflow-y-auto"
-          @click.stop
-        >
-          <DropdownMenuItem
-            v-for="u in projectMemberUsers"
-            :key="u._id"
-            @select="changeReporter(row.item, u._id)"
+            <DropdownMenuItem @select="changeAssignee(row.item, null)">
+              <VsxIcon iconName="User" class="size-4" />
+              <span>Unassigned</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              v-for="u in projectMemberUsers"
+              :key="u._id"
+              @select="changeAssignee(row.item, u._id)"
+            >
+              <Avatar class="size-5">
+                <AvatarFallback class="text-[9px]">
+                  {{ userStore.initials(u._id) }}
+                </AvatarFallback>
+              </Avatar>
+              <span>{{ u.name }}</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div v-else class="flex items-center h-13 px-4">
+          <div
+            v-if="row.item.assigneeId"
+            class="flex items-center gap-2 min-w-0"
           >
-            <Avatar class="size-5">
-              <AvatarFallback class="text-[9px]">
-                {{ userStore.initials(u._id) }}
+            <Avatar class="size-6 shrink-0">
+              <AvatarFallback class="text-[10px]">
+                {{ memberInitials(row.item.assigneeId) }}
               </AvatarFallback>
             </Avatar>
-            <span>{{ u.name }}</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <div v-else class="flex items-center h-13 px-4">
-        <div v-if="row.item.reporterId" class="flex items-center gap-2 min-w-0">
-          <Avatar class="size-6 shrink-0">
-            <AvatarFallback class="text-[10px]">
-              {{ memberInitials(row.item.reporterId) }}
-            </AvatarFallback>
-          </Avatar>
-          <span class="text-xs truncate">
-            {{ memberName(row.item.reporterId) }}
+            <span class="text-xs truncate">
+              {{ memberName(row.item.assigneeId) }}
+            </span>
+          </div>
+          <span v-else class="text-xs text-muted-foreground">Unassigned</span>
+        </div>
+      </template>
+
+      <template #cell-reporter="{ row }">
+        <DropdownMenu v-if="canEditItem(row.item)">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+              @click.stop
+            >
+              <span class="flex items-center gap-2 min-w-0">
+                <template v-if="row.item.reporterId">
+                  <Avatar class="size-6 shrink-0">
+                    <AvatarFallback class="text-[10px]">
+                      {{ memberInitials(row.item.reporterId) }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span class="text-xs truncate">
+                    {{ memberName(row.item.reporterId) }}
+                  </span>
+                </template>
+                <span v-else class="text-xs text-muted-foreground">—</span>
+              </span>
+              <VsxIcon
+                iconName="ArrowDown2"
+                class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            class="max-h-72 overflow-y-auto"
+            @click.stop
+          >
+            <DropdownMenuItem
+              v-for="u in projectMemberUsers"
+              :key="u._id"
+              @select="changeReporter(row.item, u._id)"
+            >
+              <Avatar class="size-5">
+                <AvatarFallback class="text-[9px]">
+                  {{ userStore.initials(u._id) }}
+                </AvatarFallback>
+              </Avatar>
+              <span>{{ u.name }}</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div v-else class="flex items-center h-13 px-4">
+          <div
+            v-if="row.item.reporterId"
+            class="flex items-center gap-2 min-w-0"
+          >
+            <Avatar class="size-6 shrink-0">
+              <AvatarFallback class="text-[10px]">
+                {{ memberInitials(row.item.reporterId) }}
+              </AvatarFallback>
+            </Avatar>
+            <span class="text-xs truncate">
+              {{ memberName(row.item.reporterId) }}
+            </span>
+          </div>
+          <span v-else class="text-xs text-muted-foreground">—</span>
+        </div>
+      </template>
+
+      <template #cell-labels="{ row }">
+        <div
+          v-if="row.item.labels.length"
+          class="flex flex-wrap items-center gap-1"
+        >
+          <span
+            v-for="label in row.item.labels"
+            :key="label"
+            class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+          >
+            {{ label }}
           </span>
         </div>
         <span v-else class="text-xs text-muted-foreground">—</span>
-      </div>
-    </template>
+      </template>
 
-    <template #cell-labels="{ row }">
-      <div
-        v-if="row.item.labels.length"
-        class="flex flex-wrap items-center gap-1"
-      >
-        <span
-          v-for="label in row.item.labels"
-          :key="label"
-          class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+      <template #cell-components="{ row }">
+        <div
+          v-if="itemComponents(row.item).length"
+          class="flex flex-wrap items-center gap-1"
         >
-          {{ label }}
-        </span>
-      </div>
-      <span v-else class="text-xs text-muted-foreground">—</span>
-    </template>
+          <span
+            v-for="c in itemComponents(row.item)"
+            :key="c._id"
+            class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+          >
+            {{ c.name }}
+          </span>
+        </div>
+        <span v-else class="text-xs text-muted-foreground">—</span>
+      </template>
 
-    <template #cell-components="{ row }">
-      <div
-        v-if="itemComponents(row.item).length"
-        class="flex flex-wrap items-center gap-1"
-      >
+      <template #cell-sprint="{ row }">
+        <span v-if="row.item.sprintId" class="text-xs truncate">
+          {{ sprintName(row.item.sprintId) }}
+        </span>
+        <span v-else class="text-xs text-muted-foreground">—</span>
+      </template>
+
+      <template #cell-storyPoints="{ row }">
         <span
-          v-for="c in itemComponents(row.item)"
-          :key="c._id"
-          class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]"
+          v-if="row.item.storyPoints != null"
+          class="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs"
         >
-          {{ c.name }}
+          {{ row.item.storyPoints }}
         </span>
-      </div>
-      <span v-else class="text-xs text-muted-foreground">—</span>
-    </template>
+        <span v-else class="text-xs text-muted-foreground">—</span>
+      </template>
 
-    <template #cell-sprint="{ row }">
-      <span v-if="row.item.sprintId" class="text-xs truncate">
-        {{ sprintName(row.item.sprintId) }}
-      </span>
-      <span v-else class="text-xs text-muted-foreground">—</span>
-    </template>
-
-    <template #cell-storyPoints="{ row }">
-      <span
-        v-if="row.item.storyPoints != null"
-        class="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs"
-      >
-        {{ row.item.storyPoints }}
-      </span>
-      <span v-else class="text-xs text-muted-foreground">—</span>
-    </template>
-
-    <template #cell-dueDate="{ row }">
-      <DropdownMenu v-if="canEditItem(row.item)">
-        <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+      <template #cell-dueDate="{ row }">
+        <DropdownMenu v-if="canEditItem(row.item)">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="group/cell flex items-center justify-between gap-2 h-13 w-full px-4 cursor-pointer hover:bg-accent/40 transition-colors text-left"
+              @click.stop
+            >
+              <span class="text-xs text-muted-foreground">
+                {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
+              </span>
+              <VsxIcon
+                iconName="ArrowDown2"
+                class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            class="p-2 flex flex-col gap-2 min-w-52"
             @click.stop
           >
-            <span class="text-xs text-muted-foreground">
-              {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
-            </span>
-            <VsxIcon
-              iconName="ArrowDown2"
-              class="size-3 shrink-0 text-muted-foreground opacity-60 group-hover/cell:opacity-100 transition-opacity"
+            <input
+              type="date"
+              :value="dateOnly(row.item.dueDate)"
+              class="border rounded px-2 py-1 text-sm bg-background"
+              @change="(e) => changeDueDate(row.item, e)"
             />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          class="p-2 flex flex-col gap-2 min-w-52"
-          @click.stop
+            <button
+              v-if="row.item.dueDate"
+              type="button"
+              class="cursor-pointer text-xs text-muted-foreground hover:text-destructive text-left px-2 py-1"
+              @click="changeDueDate(row.item, null)"
+            >
+              Clear due date
+            </button>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div v-else class="flex items-center h-13 px-4">
+          <span class="text-xs text-muted-foreground">
+            {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
+          </span>
+        </div>
+      </template>
+
+      <template #cell-attachments="{ row }">
+        <span
+          v-if="row.item.attachments.length"
+          class="inline-flex items-center gap-1 text-xs"
         >
-          <input
-            type="date"
-            :value="dateOnly(row.item.dueDate)"
-            class="border rounded px-2 py-1 text-sm bg-background"
-            @change="(e) => changeDueDate(row.item, e)"
-          />
-          <button
-            v-if="row.item.dueDate"
-            type="button"
-            class="cursor-pointer text-xs text-muted-foreground hover:text-destructive text-left px-2 py-1"
-            @click="changeDueDate(row.item, null)"
-          >
-            Clear due date
-          </button>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <div v-else class="flex items-center h-13 px-4">
+          <VsxIcon iconName="Paperclip2" class="size-3.5" />
+          {{ row.item.attachments.length }}
+        </span>
+        <span v-else class="text-xs text-muted-foreground">—</span>
+      </template>
+
+      <template #cell-updated="{ row }">
         <span class="text-xs text-muted-foreground">
-          {{ row.item.dueDate ? formatDate(row.item.dueDate) : "—" }}
+          {{ formatDateTime(row.item.updatedAt) }}
         </span>
-      </div>
-    </template>
+      </template>
 
-    <template #cell-attachments="{ row }">
-      <span
-        v-if="row.item.attachments.length"
-        class="inline-flex items-center gap-1 text-xs"
-      >
-        <VsxIcon iconName="Paperclip2" class="size-3.5" />
-        {{ row.item.attachments.length }}
-      </span>
-      <span v-else class="text-xs text-muted-foreground">—</span>
-    </template>
-
-    <template #cell-updated="{ row }">
-      <span class="text-xs text-muted-foreground">
-        {{ formatDateTime(row.item.updatedAt) }}
-      </span>
-    </template>
-
-    <template #cell-created="{ row }">
-      <span class="text-xs text-muted-foreground">
-        {{ formatDateTime(row.item.createdAt) }}
-      </span>
-    </template>
-
-    <template #cell-createdBy="{ row }">
-      <div class="flex items-center gap-2 min-w-0">
-        <Avatar class="size-6 shrink-0">
-          <AvatarFallback class="text-[10px]">
-            {{ memberInitials(row.item.createdBy) }}
-          </AvatarFallback>
-        </Avatar>
-        <span class="text-xs truncate">
-          {{ memberName(row.item.createdBy) }}
+      <template #cell-created="{ row }">
+        <span class="text-xs text-muted-foreground">
+          {{ formatDateTime(row.item.createdAt) }}
         </span>
-      </div>
-    </template>
+      </template>
 
-    <!-- Row actions -->
-    <template #row-actions="{ row }">
-      <DropdownMenuItem @select="openItem(row.item._id)">
-        <VsxIcon iconName="Eye" class="size-4" />
-        <span>View work item</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem @select="rankToTop(row.item)">
-        <VsxIcon iconName="ArrowUp2" class="size-4" />
-        <span>Rank to top</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem @select="rankToBottom(row.item)">
-        <VsxIcon iconName="ArrowDown2" class="size-4" />
-        <span>Rank to bottom</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem @select="copyLink(row.item)">
-        <VsxIcon iconName="Link" class="size-4" />
-        <span>Copy link</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        v-if="row.item.assigneeId"
-        @select="selectAssignee(row.item.assigneeId!)"
+      <template #cell-createdBy="{ row }">
+        <div class="flex items-center gap-2 min-w-0">
+          <Avatar class="size-6 shrink-0">
+            <AvatarFallback class="text-[10px]">
+              {{ memberInitials(row.item.createdBy) }}
+            </AvatarFallback>
+          </Avatar>
+          <span class="text-xs truncate">
+            {{ memberName(row.item.createdBy) }}
+          </span>
+        </div>
+      </template>
+
+      <!-- Row actions -->
+      <template #row-actions="{ row }">
+        <DropdownMenuItem @select="openItem(row.item._id)">
+          <VsxIcon iconName="Eye" class="size-4" />
+          <span>View work item</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem @select="rankToTop(row.item)">
+          <VsxIcon iconName="ArrowUp2" class="size-4" />
+          <span>Rank to top</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem @select="rankToBottom(row.item)">
+          <VsxIcon iconName="ArrowDown2" class="size-4" />
+          <span>Rank to bottom</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem @select="copyLink(row.item)">
+          <VsxIcon iconName="Link" class="size-4" />
+          <span>Copy link</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          v-if="row.item.assigneeId"
+          @select="selectAssignee(row.item.assigneeId!)"
+        >
+          <VsxIcon iconName="UserSearch" class="size-4" />
+          <span>Filter by assignee</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" @select="deleteRow(row.item)">
+          <VsxIcon iconName="Trash" class="size-4" />
+          <span>Delete</span>
+        </DropdownMenuItem>
+      </template>
+    </DynamicDataTable>
+
+    <!-- Floating bulk-selection action bar (centered within content area) -->
+    <Transition
+      enter-active-class="transition duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
+      enter-from-class="opacity-0 translate-y-4"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition duration-200 ease-[cubic-bezier(0.7,0,0.84,0)]"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-3"
+    >
+      <div
+        v-if="selectedCount > 0"
+        class="absolute bottom-2 left-0 right-0 mx-auto w-fit z-50 flex flex-nowrap whitespace-nowrap items-center gap-0.5 rounded-xl bg-card/15 backdrop-blur-xl text-foreground px-2 py-1.5 shadow-2xl shadow-black/15 border-2 border-border"
       >
-        <VsxIcon iconName="UserSearch" class="size-4" />
-        <span>Filter by assignee</span>
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem variant="destructive" @select="deleteRow(row.item)">
-        <VsxIcon iconName="Trash" class="size-4" />
-        <span>Delete</span>
-      </DropdownMenuItem>
-    </template>
-  </DynamicDataTable>
+        <span class="flex items-center gap-2 px-3 text-sm">
+          <span
+            class="inline-flex items-center justify-center min-w-6 h-6 rounded bg-muted px-1.5 text-xs font-medium"
+          >
+            {{ selectedCount }}
+          </span>
+          <span class="text-muted-foreground">Selected</span>
+        </span>
+
+        <span class="w-px h-6 bg-border mx-1" />
+
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm cursor-pointer hover:bg-accent transition-colors"
+          @click="selectAllRows"
+        >
+          <VsxIcon iconName="TickSquare" class="size-4" />
+          <span>Select all</span>
+        </button>
+
+        <span class="w-px h-6 bg-border mx-1" />
+
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm cursor-pointer hover:bg-accent transition-colors"
+          @click="clearSelection"
+        >
+          <VsxIcon iconName="CloseSquare" class="size-4" />
+          <span>Unselect All</span>
+        </button>
+
+        <span class="w-px h-6 bg-border mx-1" />
+
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm cursor-pointer hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!canBulkEdit"
+          @click="notImplemented('Update Fields')"
+        >
+          <VsxIcon iconName="Edit" class="size-4" />
+          <span>Update Fields</span>
+        </button>
+
+        <span class="w-px h-6 bg-border mx-1" />
+
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm cursor-pointer hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="!canBulkEdit"
+            >
+              <VsxIcon iconName="ArrowSwapHorizontal" class="size-4" />
+              <span>Change Status</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" side="top">
+            <DropdownMenuItem
+              v-for="s in EDITABLE_STATES"
+              :key="s.value"
+              @select="bulkChangeStatus(s.value)"
+            >
+              <span class="inline-flex items-center gap-2">
+                <span :class="['size-2 rounded-full', STATE_DOT[s.value]]" />
+                {{ s.label }}
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <span class="w-px h-6 bg-border mx-1" />
+
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-destructive cursor-pointer hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!canBulkEdit"
+          @click="bulkDelete"
+        >
+          <VsxIcon iconName="Trash" class="size-4" />
+          <span>Delete</span>
+        </button>
+
+        <span class="w-px h-6 bg-border mx-1" />
+
+        <button
+          type="button"
+          class="inline-flex items-center justify-center size-9 rounded-md text-muted-foreground cursor-pointer hover:bg-accent hover:text-foreground transition-colors"
+          aria-label="Close"
+          @click="clearSelection"
+        >
+          <VsxIcon iconName="CloseCircle" class="size-4" />
+        </button>
+      </div>
+    </Transition>
+  </div>
 </template>
