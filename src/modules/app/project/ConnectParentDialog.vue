@@ -57,6 +57,41 @@ const targetMeta = computed(() => TYPE_META[props.targetType]);
 
 const selectedIds = computed(() => new Set(props.items.map((it) => it._id)));
 
+// Mode is derived from the selection — "switch" when every item already has a
+// parent, "connect" when none do, "mixed" when the selection is a blend of
+// connected and unconnected items.
+const mode = computed<"connect" | "switch" | "mixed">(() => {
+  if (props.items.length === 0) return "connect";
+  const connected = props.items.filter((it) => it.parentId !== null).length;
+  if (connected === 0) return "connect";
+  if (connected === props.items.length) return "switch";
+  return "mixed";
+});
+
+const titleText = computed<string>(() => {
+  const label = targetMeta.value.label;
+  if (mode.value === "switch") return `Switch Connected ${label}`;
+  if (mode.value === "mixed") return `Connect / Switch ${label}`;
+  return `Connect to ${label}`;
+});
+
+const descriptionLead = computed<string>(() => {
+  if (mode.value === "switch") return "Replace the current parent of";
+  if (mode.value === "mixed") return "Connect or switch the parent of";
+  return "Make";
+});
+
+const footerHint = computed<string>(() => {
+  const label = targetMeta.value.label.toLowerCase();
+  if (mode.value === "switch") {
+    return `Click a ${label} to replace the current parent.`;
+  }
+  if (mode.value === "mixed") {
+    return `Click a ${label} to connect or replace the current parent.`;
+  }
+  return `Click a ${label} to set it as the parent.`;
+});
+
 const filtered = computed<WorkItem[]>(() => {
   const q = search.value.trim().toLowerCase();
   return candidates.value
@@ -178,17 +213,20 @@ const childTypeLabel = computed(() => {
           </span>
           <div class="flex flex-col gap-0.5 min-w-0">
             <DialogTitle class="text-base font-semibold leading-tight">
-              Connect to {{ targetMeta.label }}
+              {{ titleText }}
             </DialogTitle>
             <DialogDescription
               class="text-xs text-muted-foreground leading-tight"
             >
-              Make
+              {{ descriptionLead }}
               <span class="font-medium text-foreground">
-                {{ itemCount }} item{{ itemCount === 1 ? "" : "s" }}
+                {{ itemCount }} {{ childTypeLabel }}{{
+                  itemCount === 1 ? "" : "s"
+                }}
               </span>
-              a {{ childTypeLabel }} of the picked {{ targetMeta.label
-              }}.
+              <template v-if="mode === 'switch'">to the picked {{ targetMeta.label }}.</template>
+              <template v-else-if="mode === 'mixed'">— pick a new {{ targetMeta.label }}.</template>
+              <template v-else>a {{ childTypeLabel }} of the picked {{ targetMeta.label }}.</template>
             </DialogDescription>
           </div>
         </div>
@@ -239,7 +277,8 @@ const childTypeLabel = computed(() => {
         <p
           class="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-2"
         >
-          Pick a parent {{ targetMeta.label }}
+          {{ mode === "connect" ? "Pick a parent" : "Pick a new parent" }}
+          {{ targetMeta.label }}
         </p>
         <div class="relative">
           <VsxIcon
@@ -371,7 +410,7 @@ const childTypeLabel = computed(() => {
           class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
         >
           <VsxIcon iconName="InfoCircle" class="size-3.5" />
-          Click a {{ targetMeta.label.toLowerCase() }} to set it as the parent.
+          {{ footerHint }}
         </span>
       </div>
     </DialogContent>

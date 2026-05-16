@@ -327,8 +327,18 @@ async function fetchPage(): Promise<void> {
       });
     }
 
-    items.value = pageItems;
+    // Backfill missing ancestors on a working copy BEFORE assigning items, so
+    // the skeleton (gated on items.length === 0) stays up across the extra
+    // getWorkItem calls and the user never sees orphan rows flicker.
+    const { items: withParents, expanded } =
+      await backfillMissingParents(pageItems);
+    items.value = withParents;
     total.value = result.total;
+    if (expanded.length > 0) {
+      const next = new Set(expandedIds.value);
+      for (const id of expanded) next.add(id);
+      expandedIds.value = next;
+    }
   } catch (err) {
     if (axios.isAxiosError(err)) {
       loadError.value =
@@ -340,6 +350,38 @@ async function fetchPage(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+// Hierarchy view requires an item's parent to be present in `items` for the
+// `childrenByParent` bucketing to nest it correctly. The paginated/sorted page
+// often omits ancestors (e.g. a segment that hasn't been recently updated), so
+// children render as orphan roots. Fetch any missing parents up the chain and
+// return them as additions, plus the ids to auto-expand. Operates on a working
+// copy so the caller can keep the skeleton up until everything is ready.
+async function backfillMissingParents(
+  initial: WorkItem[],
+): Promise<{ items: WorkItem[]; expanded: string[] }> {
+  let current = initial;
+  const expanded: string[] = [];
+  let safety = 8;
+  while (safety-- > 0) {
+    const known = new Set(current.map((it) => it._id));
+    const missing = new Set<string>();
+    for (const it of current) {
+      if (it.parentId && !known.has(it.parentId)) missing.add(it.parentId);
+    }
+    if (missing.size === 0) break;
+    const results = await Promise.all(
+      [...missing].map((id) =>
+        workItemService.getWorkItem(id).catch(() => null),
+      ),
+    );
+    const fetched = results.filter((r): r is WorkItem => r !== null);
+    if (fetched.length === 0) break;
+    for (const it of fetched) expanded.push(it._id);
+    current = [...fetched, ...current];
+  }
+  return { items: current, expanded };
 }
 
 watch(
@@ -955,12 +997,6 @@ async function onConnectApplied(payload: {
     const byId = new Map(payload.updatedItems.map((it) => [it._id, it]));
     items.value = items.value.map((it) => byId.get(it._id) ?? it);
   }
-  // Ensure hierarchy view reveals the moved items by expanding their new parent.
-  if (!expandedIds.value.has(payload.parentId)) {
-    const next = new Set(expandedIds.value);
-    next.add(payload.parentId);
-    expandedIds.value = next;
-  }
   // Clear any rows that are no longer relevant from the selection.
   if (selectedRows.value.size > 0) {
     const next = new Set<string>();
@@ -969,6 +1005,18 @@ async function onConnectApplied(payload: {
     }
     selectedRows.value = next;
   }
+  // Ensure the new parent is expanded so the moved children stay visible —
+  // backfillMissingParents (run inside fetchPage) will inject missing ancestors
+  // and auto-expand them, but a parent that's already on the page won't be
+  // touched there, so explicitly mark it expanded here.
+  if (!expandedIds.value.has(payload.parentId)) {
+    const next = new Set(expandedIds.value);
+    next.add(payload.parentId);
+    expandedIds.value = next;
+  }
+  // Refetch so the page reflects updatedAt / rank changes from the server.
+  // fetchPage internally calls backfillMissingParents, which walks up the
+  // ancestor chain for any item whose parent isn't on the current page.
   await fetchPage();
   void reloadTasks();
 }
@@ -988,6 +1036,45 @@ const canBulkConnectToSegment = computed<boolean>(
 const canBulkConnect = computed<boolean>(
   () => canBulkConnectToTask.value || canBulkConnectToSegment.value,
 );
+
+// Only tasks can be detached — subtasks require a parent task on the backend.
+const canBulkDisconnectFromSegment = computed<boolean>(
+  () =>
+    selectedItems.value.length > 0 &&
+    selectedItems.value.every(
+      (it) => it.type === "task" && it.parentId !== null,
+    ),
+);
+
+async function disconnectFromParent(targets: WorkItem[]): Promise<void> {
+  const editable = targets.filter(
+    (it) => canEditItem(it) && it.parentId !== null,
+  );
+  if (editable.length === 0) return;
+  const label = editable.length === 1 ? `"${editable[0].title}"` : `${editable.length} tasks`;
+  const ok = window.confirm(`Disconnect ${label} from its parent segment?`);
+  if (!ok) return;
+  loadError.value = null;
+  try {
+    const updated = await Promise.all(
+      editable.map((it) =>
+        workItemService.updateWorkItem(it._id, { parentId: null }),
+      ),
+    );
+    const byId = new Map(updated.map((it) => [it._id, it]));
+    items.value = items.value.map((it) => byId.get(it._id) ?? it);
+    await fetchPage();
+    void reloadTasks();
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      loadError.value =
+        (err.response?.data as { message?: string } | undefined)?.message ??
+        "Failed to disconnect work items.";
+    } else {
+      loadError.value = "Failed to disconnect work items.";
+    }
+  }
+}
 
 async function bulkDelete(): Promise<void> {
   const ids = [...selectedRows.value];
@@ -1840,7 +1927,11 @@ async function bulkDelete(): Promise<void> {
           @select="openConnect('task', [row.item])"
         >
           <VsxIcon iconName="TaskSquare" class="size-4 text-sky-600" />
-          <span>Connect to Task</span>
+          <span>
+            {{
+              row.item.parentId ? "Switch Connected Task" : "Connect to Task"
+            }}
+          </span>
         </DropdownMenuItem>
         <DropdownMenuItem
           v-if="row.item.type === 'task'"
@@ -1848,7 +1939,21 @@ async function bulkDelete(): Promise<void> {
           @select="openConnect('segment', [row.item])"
         >
           <VsxIcon iconName="Element4" class="size-4 text-violet-600" />
-          <span>Connect to Segment</span>
+          <span>
+            {{
+              row.item.parentId
+                ? "Switch Connected Segment"
+                : "Connect to Segment"
+            }}
+          </span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          v-if="row.item.type === 'task' && row.item.parentId"
+          :disabled="!canEditItem(row.item)"
+          @select="disconnectFromParent([row.item])"
+        >
+          <VsxIcon iconName="Link21" class="size-4 text-amber-600" />
+          <span>Disconnect from Segment</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator
           v-if="row.item.type === 'subtask' || row.item.type === 'task'"
@@ -1963,14 +2068,21 @@ async function bulkDelete(): Promise<void> {
                 @select="openConnect('task', selectedItems)"
               >
                 <VsxIcon iconName="TaskSquare" class="size-4 text-sky-600" />
-                <span>Connect to Task</span>
+                <span>Connect / Switch to Task</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 v-if="canBulkConnectToSegment"
                 @select="openConnect('segment', selectedItems)"
               >
                 <VsxIcon iconName="Element4" class="size-4 text-violet-600" />
-                <span>Connect to Segment</span>
+                <span>Connect / Switch to Segment</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                v-if="canBulkDisconnectFromSegment"
+                @select="disconnectFromParent(selectedItems)"
+              >
+                <VsxIcon iconName="Link21" class="size-4 text-amber-600" />
+                <span>Disconnect from Segment</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
