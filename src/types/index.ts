@@ -116,6 +116,7 @@ export interface WorkItem {
   storyPoints: number | null;
   dueDate: string | null;
   attachments: WorkItemAttachment[];
+  boardPosition: number;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -153,6 +154,7 @@ export interface UpdateWorkItemPayload {
   dueDate?: string | null;
   parentId?: string | null;
   attachments?: Omit<WorkItemAttachment, 'uploadedAt'>[];
+  boardPosition?: number;
 }
 
 export type WorkItemSortBy =

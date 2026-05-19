@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, toRefs } from 'vue';
+import { computed, reactive, ref, toRefs, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { VsxIcon } from 'vue-iconsax';
+import { VueDraggable } from 'vue-draggable-plus';
 import { useWorkItemStore } from '@/store/workItem';
 import type {
   WorkItem,
@@ -34,6 +35,8 @@ const COLUMNS: ColumnDef[] = [
   { state: 'CANCELLED', label: 'Cancelled', accent: 'bg-gray-400' },
 ];
 
+const COLUMN_STATES = COLUMNS.map((c) => c.state);
+
 const PRIORITY_BADGE: Record<WorkItemPriority, string> = {
   low: 'bg-muted text-muted-foreground',
   medium: 'bg-blue-100 text-blue-800',
@@ -64,18 +67,114 @@ const visibleItems = computed<WorkItem[]>(() => {
   return items.value.filter((i) => i.type === typeFilter.value);
 });
 
-const grouped = computed<Record<WorkItemState, WorkItem[]>>(() => {
-  const groups: Record<WorkItemState, WorkItem[]> = {
-    TODO: [],
-    IN_PROGRESS: [],
-    IN_REVIEW: [],
-    DONE: [],
-    BLOCKED: [],
-    CANCELLED: [],
-  };
-  for (const item of visibleItems.value) groups[item.state].push(item);
-  return groups;
+// Per-column writable arrays that vue-draggable-plus mutates as the user drags.
+// Re-synced from `visibleItems` whenever the shared store changes, sorted by
+// boardPosition ascending (with createdAt as a tiebreaker so items without
+// a position still get a stable order).
+const cols = reactive<Record<WorkItemState, WorkItem[]>>({
+  TODO: [],
+  IN_PROGRESS: [],
+  IN_REVIEW: [],
+  DONE: [],
+  BLOCKED: [],
+  CANCELLED: [],
 });
+
+function sortItems(list: WorkItem[]): WorkItem[] {
+  return [...list].sort((a, b) => {
+    const ap = a.boardPosition ?? Number.MAX_SAFE_INTEGER;
+    const bp = b.boardPosition ?? Number.MAX_SAFE_INTEGER;
+    if (ap !== bp) return ap - bp;
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+}
+
+watch(
+  visibleItems,
+  (next) => {
+    for (const state of COLUMN_STATES) {
+      cols[state] = sortItems(next.filter((i) => i.state === state));
+    }
+  },
+  { immediate: true },
+);
+
+// Gap between sibling positions when appending or prepending so we can later
+// insert between them with a midpoint computation.
+const POSITION_GAP = 1000;
+
+function computeBoardPosition(
+  list: WorkItem[],
+  newIndex: number,
+  movedId: string,
+): number {
+  // Neighbours, skipping the moved item itself in case it's already in the list.
+  const prev =
+    [...list.slice(0, newIndex)].reverse().find((i) => i._id !== movedId) ??
+    null;
+  const next = list.slice(newIndex + 1).find((i) => i._id !== movedId) ?? null;
+
+  if (prev && next) {
+    return ((prev.boardPosition ?? 0) + (next.boardPosition ?? 0)) / 2;
+  }
+  if (prev) return (prev.boardPosition ?? 0) + POSITION_GAP;
+  if (next) return (next.boardPosition ?? 0) - POSITION_GAP;
+  return Date.now();
+}
+
+interface SortableEnd {
+  to: HTMLElement | null;
+  from: HTMLElement | null;
+  oldIndex?: number;
+  newIndex?: number;
+}
+
+async function onDragEnd(evt: SortableEnd): Promise<void> {
+  if (!canCreateTask.value) return;
+  const toEl = evt.to;
+  const fromEl = evt.from;
+  if (!toEl || !fromEl) return;
+
+  const destState = toEl.dataset.colState as WorkItemState | undefined;
+  const srcState = fromEl.dataset.colState as WorkItemState | undefined;
+  if (!destState || !srcState) return;
+  if (evt.newIndex === undefined) return;
+
+  // No-op drop in the same column at the same position.
+  if (
+    destState === srcState &&
+    evt.oldIndex !== undefined &&
+    evt.oldIndex === evt.newIndex
+  ) {
+    return;
+  }
+
+  const moved = cols[destState][evt.newIndex];
+  if (!moved) return;
+
+  const newPosition = computeBoardPosition(
+    cols[destState],
+    evt.newIndex,
+    moved._id,
+  );
+
+  // Skip the round-trip if nothing actually changed.
+  if (moved.state === destState && moved.boardPosition === newPosition) {
+    return;
+  }
+
+  try {
+    await workItemStore.updateItem(moved._id, {
+      state: destState,
+      boardPosition: newPosition,
+    });
+  } catch {
+    // Mutation failed — re-sync from the canonical store so the card snaps back.
+    for (const state of COLUMN_STATES) {
+      cols[state] = sortItems(visibleItems.value.filter((i) => i.state === state));
+    }
+  }
+}
 
 function memberInitials(id: string | null): string {
   if (!id) return '?';
@@ -138,7 +237,7 @@ function openItem(id: string): void {
               <span :class="['size-2 rounded-full', col.accent]" />
               <span class="text-sm font-medium">{{ col.label }}</span>
               <span class="text-xs text-muted-foreground">
-                {{ grouped[col.state].length }}
+                {{ cols[col.state].length }}
               </span>
             </div>
             <button
@@ -152,9 +251,20 @@ function openItem(id: string): void {
             </button>
           </div>
 
-          <div class="flex flex-col gap-2">
+          <VueDraggable
+            v-model="cols[col.state]"
+            :group="{ name: 'board' }"
+            :disabled="!canCreateTask"
+            :animation="150"
+            ghost-class="board-card-ghost"
+            drag-class="board-card-dragging"
+            item-key="_id"
+            :data-col-state="col.state"
+            class="flex flex-col gap-2 min-h-12"
+            @end="onDragEnd"
+          >
             <div
-              v-for="item in grouped[col.state]"
+              v-for="item in cols[col.state]"
               :key="item._id"
               class="rounded-md border bg-card p-3 cursor-pointer hover:shadow-sm hover:bg-accent/30 transition-shadow"
               @click="openItem(item._id)"
@@ -200,16 +310,26 @@ function openItem(id: string): void {
                 </span>
               </div>
             </div>
+          </VueDraggable>
 
-            <p
-              v-if="grouped[col.state].length === 0"
-              class="text-xs text-muted-foreground text-center py-3"
-            >
-              No items
-            </p>
-          </div>
+          <p
+            v-if="cols[col.state].length === 0"
+            class="text-xs text-muted-foreground text-center py-3"
+          >
+            No items
+          </p>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.board-card-ghost {
+  opacity: 0.4;
+}
+.board-card-dragging {
+  cursor: grabbing;
+  transform: rotate(1.5deg);
+}
+</style>
