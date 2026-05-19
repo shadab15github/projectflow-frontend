@@ -1,24 +1,15 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { useQuery } from '@tanstack/vue-query';
 import type { Tenant } from '@/types';
 import * as tenantService from '@/services/tenant.service';
 
-export const useTenantStore = defineStore('tenant', () => {
-  const tenant = ref<Tenant | null>(null);
-  const loading = ref(false);
+export const tenantKeys = {
+  all: ['tenant'] as const,
+  current: () => [...tenantKeys.all, 'me'] as const,
+};
 
-  async function fetchTenant(): Promise<void> {
-    loading.value = true;
-    try {
-      tenant.value = await tenantService.getCurrentTenant();
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  function clearTenant(): void {
-    tenant.value = null;
-  }
-
-  return { tenant, loading, fetchTenant, clearTenant };
-});
+export function useCurrentTenant() {
+  return useQuery<Tenant>({
+    queryKey: tenantKeys.current(),
+    queryFn: tenantService.getCurrentTenant,
+  });
+}

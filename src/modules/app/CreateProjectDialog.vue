@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import axios from "axios";
 import { VsxIcon } from "vue-iconsax";
-import { useProjectStore } from "@/store/project";
+import { useCreateProject } from "@/store/project";
 import { useAuthStore } from "@/store/auth";
 import * as userService from "@/services/user.service";
 import type {
@@ -41,7 +41,7 @@ const emit = defineEmits<{
   created: [projectSlug: string];
 }>();
 
-const projectStore = useProjectStore();
+const createProjectMutation = useCreateProject();
 const authStore = useAuthStore();
 
 interface FieldErrors {
@@ -310,7 +310,7 @@ async function submit(): Promise<void> {
   }
   submitting.value = true;
   try {
-    const project = await projectStore.createProject({
+    const project = await createProjectMutation.mutateAsync({
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       template: form.template,

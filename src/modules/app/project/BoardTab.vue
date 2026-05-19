@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, toRefs } from 'vue';
 import { useRouter } from 'vue-router';
-import { storeToRefs } from 'pinia';
 import { VsxIcon } from 'vue-iconsax';
 import { useWorkItemStore } from '@/store/workItem';
 import type {
@@ -16,7 +15,7 @@ import { useProjectContext } from './projectContext';
 
 const router = useRouter();
 const workItemStore = useWorkItemStore();
-const { items } = storeToRefs(workItemStore);
+const { items } = toRefs(workItemStore);
 const { tasksLoading, tasksError, canCreateTask, openCreateTask } =
   useProjectContext();
 

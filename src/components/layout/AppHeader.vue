@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useQueryClient } from "@tanstack/vue-query";
 import { useAuthStore } from "@/store/auth";
-import { useProjectStore } from "@/store/project";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,7 +17,7 @@ import AppLogo from "@/components/layout/AppLogo.vue";
 import { useTheme } from "@/composables/useTheme";
 
 const auth = useAuthStore();
-const projectStore = useProjectStore();
+const queryClient = useQueryClient();
 const { mode: themeMode, isDark, setTheme } = useTheme();
 
 function initials(value: string | undefined | null, fallback: string): string {
@@ -36,7 +36,7 @@ const userInitials = computed<string>(() => initials(auth.user?.name, "U"));
 
 function logout(): void {
   auth.logout();
-  projectStore.clear();
+  queryClient.clear();
   window.location.href = "/login";
 }
 </script>

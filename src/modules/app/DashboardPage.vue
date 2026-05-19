@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
-import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/store/auth";
-import { useProjectStore } from "@/store/project";
+import { useProjects } from "@/store/project";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,23 +14,19 @@ import {
 import CreateProjectDialog from "./CreateProjectDialog.vue";
 
 const auth = useAuthStore();
-const projectStore = useProjectStore();
 const router = useRouter();
 
-const { projects, loading, error } = storeToRefs(projectStore);
+const { data, isPending, isError } = useProjects();
+const projects = computed(() => data.value ?? []);
+const loading = isPending;
+const error = computed(() =>
+  isError.value ? "Failed to load projects" : null,
+);
 const dialogOpen = ref(false);
 
 const canCreate = computed<boolean>(() => {
   const role = auth.user?.role;
   return role === "manager" || role === "admin" || role === "super_admin";
-});
-
-onMounted(async () => {
-  try {
-    await projectStore.fetchProjects();
-  } catch {
-    // store sets error.value; api interceptor handles 401
-  }
 });
 
 function openProject(slug: string): void {

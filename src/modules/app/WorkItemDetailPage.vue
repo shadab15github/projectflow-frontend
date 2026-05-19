@@ -3,8 +3,10 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { VsxIcon } from 'vue-iconsax';
+import { useQueryClient } from '@tanstack/vue-query';
 import { useAuthStore } from '@/store/auth';
-import { useProjectStore } from '@/store/project';
+import { projectKeys } from '@/store/project';
+import * as projectService from '@/services/project.service';
 import { useWorkItemStore } from '@/store/workItem';
 import { useSprintStore } from '@/store/sprint';
 import { useComponentStore } from '@/store/component';
@@ -37,7 +39,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
-const projectStore = useProjectStore();
+const queryClient = useQueryClient();
 const workItemStore = useWorkItemStore();
 const sprintStore = useSprintStore();
 const componentStore = useComponentStore();
@@ -180,7 +182,10 @@ async function load(): Promise<void> {
   try {
     const fetched = await workItemStore.fetchItem(itemId.value);
     item.value = fetched;
-    project.value = await projectStore.fetchProject(fetched.projectId);
+    project.value = await queryClient.ensureQueryData({
+      queryKey: projectKeys.detail(fetched.projectId),
+      queryFn: () => projectService.getProject(fetched.projectId),
+    });
     await Promise.all([
       loadUsers(),
       sprintStore.fetchSprints(fetched.projectId).then(() => {

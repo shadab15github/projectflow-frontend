@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import axios from 'axios';
-import { useProjectStore } from '@/store/project';
+import { useUpdateProject } from '@/store/project';
 import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,7 @@ const emit = defineEmits<{
   saved: [];
 }>();
 
-const projectStore = useProjectStore();
+const updateProjectMutation = useUpdateProject();
 
 const name = ref<string>('');
 const description = ref<string>('');
@@ -63,9 +63,12 @@ async function onSubmit(): Promise<void> {
 
   saving.value = true;
   try {
-    await projectStore.updateProject(props.project._id, {
-      name: name.value.trim(),
-      description: description.value.trim(),
+    await updateProjectMutation.mutateAsync({
+      id: props.project._id,
+      payload: {
+        name: name.value.trim(),
+        description: description.value.trim(),
+      },
     });
     emit('saved');
     emit('update:open', false);

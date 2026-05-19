@@ -9,7 +9,8 @@
 - **Vue 3** (Composition API + `<script setup lang="ts">`)
 - **TypeScript** — strict mode enabled
 - **Vite** — build tool
-- **Pinia** — state management (typed stores)
+- **TanStack Query (`@tanstack/vue-query`)** — server state: data fetching, caching, mutations, invalidation
+- **Pinia** — auth/session client state only (`store/auth.ts`)
 - **Vue Router 4** — routing with navigation guards
 - **Axios** — HTTP client with request/response interceptors
 - **Tailwind CSS v4** — utility-first styling
@@ -21,17 +22,18 @@
 
 ```
 src/
-├── main.ts                    # App entry — mounts Vue, Pinia, Router
+├── main.ts                    # App entry — mounts Vue, Pinia, VueQueryPlugin, Router
 ├── App.vue                    # Root component
 ├── style.css                  # Tailwind + shadcn-vue CSS variables
 ├── components/
 │   └── ui/                    # shadcn-vue components (auto-added via CLI)
 ├── lib/
-│   └── utils.ts               # shadcn-vue utility (cn helper)
+│   ├── utils.ts               # shadcn-vue utility (cn helper)
+│   └── queryClient.ts         # Shared TanStack QueryClient (staleTime, retry policy)
 ├── modules/
 │   ├── public/                # LandingPage
 │   ├── auth/                  # LoginPage.vue, SignupPage.vue
-│   ├── app/                   # DashboardPage.vue, ProjectDetailPage.vue, TaskDetailPage.vue
+│   ├── app/                   # DashboardPage.vue, ProjectDetailPage.vue, WorkItemDetailPage.vue
 │   └── admin/                 # AdminPage.vue (super_admin only)
 ├── layouts/
 │   ├── AppLayout.vue          # Sidebar + top bar + <RouterView>
@@ -39,14 +41,18 @@ src/
 │   └── PublicLayout.vue       # Marketing/landing layout
 ├── router/
 │   └── index.ts               # Routes + beforeEach auth guard
-├── store/
-│   ├── auth.ts                # user, token, login(), logout(), isAuthenticated
-│   ├── project.ts             # projects[], fetchProjects(), createProject()
-│   └── task.ts                # tasks[], fetchTasks(), updateTask()
+├── store/                     # Auth uses Pinia; everything else is TanStack Query composables
+│   ├── auth.ts                # Pinia: user, token, login(), logout(), isAuthenticated
+│   ├── project.ts             # useProjects(), useProject(slug), useCreateProject(), useUpdateProject(), useDeleteProject()
+│   ├── tenant.ts              # useCurrentTenant()
+│   ├── user.ts                # useUsers(), useUserLookup() — list + byId/displayName/initials helpers
+│   ├── sprint.ts              # useSprintStore() — sprints, mutations; backed by TanStack Query
+│   ├── component.ts           # useComponentStore() — project components; backed by TanStack Query
+│   └── workItem.ts            # useWorkItemStore() — items, filters (client state), mutations
 ├── services/
 │   └── api.ts                 # Axios instance, interceptors (401 → /login)
 ├── types/
-│   └── index.ts               # Shared interfaces: User, Project, Task, etc.
+│   └── index.ts               # Shared interfaces: User, Project, WorkItem, Sprint, ...
 └── composables/               # Vue composables (as needed)
 ```
 
@@ -92,11 +98,13 @@ npx shadcn-vue@latest add card       # etc.
 - **All code is TypeScript** — no `.js` files in `src/`. Vue SFCs use `<script setup lang="ts">`
 - **Strict typing** — avoid `any`; define interfaces in `src/types/index.ts`
 - **Use shadcn-vue components** for all UI — buttons, inputs, cards, dialogs, dropdowns, etc.
-- **Never store JWT in localStorage** — use httpOnly cookies; Pinia store holds user state in-memory only
+- **Never store JWT in localStorage** — use httpOnly cookies; the Pinia `auth` store holds user state in-memory only
 - **Use async/await** — no raw `.then()` chains
 - **Use `@/` import alias** for all project imports
 - **Keep modules self-contained** — pages live in their module folder
-- **Pinia stores** are typed and use the Composition API (`defineStore` with setup function)
+- **Server state lives in TanStack Query** — use `useQuery` for reads and `useMutation` for writes. Each domain (`project`, `tenant`, `user`, `sprint`, `component`, `workItem`) exposes its composables and a `xKeys` query-key factory in `src/store/`. Mutations should update the query cache (`setQueryData` or `invalidateQueries`) on success.
+- **Client state stays minimal** — only auth/session uses Pinia. UI filters and selections live in component-local refs.
+- **Sign out clears the query cache** — `authStore.logout()` calls `queryClient.clear()` so cached server data doesn't leak across users.
 
 ---
 

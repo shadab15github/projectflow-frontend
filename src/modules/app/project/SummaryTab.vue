@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, toRefs } from 'vue';
 import { useRouter } from 'vue-router';
-import { storeToRefs } from 'pinia';
 import { VsxIcon } from 'vue-iconsax';
 import { useWorkItemStore } from '@/store/workItem';
 import type { WorkItem, WorkItemState } from '@/types';
@@ -11,7 +10,7 @@ import { useProjectContext } from './projectContext';
 
 const router = useRouter();
 const workItemStore = useWorkItemStore();
-const { items } = storeToRefs(workItemStore);
+const { items } = toRefs(workItemStore);
 const { project, tasksLoading } = useProjectContext();
 
 interface StateMeta {

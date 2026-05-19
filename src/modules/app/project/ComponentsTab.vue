@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, toRefs, watch } from 'vue';
 import axios from 'axios';
-import { storeToRefs } from 'pinia';
 import { VsxIcon } from 'vue-iconsax';
 import { useComponentStore } from '@/store/component';
 import * as userService from '@/services/user.service';
@@ -30,7 +29,7 @@ import { useProjectContext } from './projectContext';
 
 const { project, canEdit } = useProjectContext();
 const componentStore = useComponentStore();
-const { components } = storeToRefs(componentStore);
+const { components } = toRefs(componentStore);
 
 const projectId = computed<string>(() => project.value?._id ?? '');
 

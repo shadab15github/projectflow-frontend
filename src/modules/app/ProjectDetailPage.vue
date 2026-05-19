@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue';
+import { computed, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { VsxIcon } from 'vue-iconsax';
 import { useAuthStore } from '@/store/auth';
-import { useProjectStore } from '@/store/project';
+import { useDeleteProject, useProject } from '@/store/project';
 import { useWorkItemStore } from '@/store/workItem';
-import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -39,22 +38,31 @@ const TABS: TabDef[] = [
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
-const projectStore = useProjectStore();
 const workItemStore = useWorkItemStore();
+const deleteProjectMutation = useDeleteProject();
 
-const project = ref<Project | null>(null);
-const loading = ref(false);
-const loadError = ref<string | null>(null);
+const projectSlug = computed<string>(() => route.params.slug as string);
+
+const projectQuery = useProject(projectSlug);
+const project = computed(() => projectQuery.data.value ?? null);
+const loading = computed(() => projectQuery.isPending.value);
+const loadError = computed<string | null>(() => {
+  const err = projectQuery.error.value;
+  if (!err) return null;
+  if (axios.isAxiosError(err) && err.response?.status === 404) {
+    return 'Project not found.';
+  }
+  return 'Failed to load project.';
+});
 
 const tasksLoading = ref(false);
 const tasksError = ref<string | null>(null);
 
 const createOpen = ref(false);
 const editOpen = ref(false);
-const deleting = ref(false);
 const deleteError = ref<string | null>(null);
+const deleting = computed(() => deleteProjectMutation.isPending.value);
 
-const projectSlug = computed<string>(() => route.params.slug as string);
 const projectId = computed<string>(() => project.value?._id ?? '');
 
 const canEdit = computed<boolean>(() => {
@@ -82,20 +90,8 @@ const projectInitials = computed<string>(() => {
 });
 
 async function reload(): Promise<void> {
-  loading.value = true;
-  loadError.value = null;
-  try {
-    project.value = await projectStore.fetchProject(projectSlug.value);
-    await reloadItems();
-  } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.status === 404) {
-      loadError.value = 'Project not found.';
-    } else {
-      loadError.value = 'Failed to load project.';
-    }
-  } finally {
-    loading.value = false;
-  }
+  await projectQuery.refetch();
+  await reloadItems();
 }
 
 async function reloadItems(): Promise<void> {
@@ -126,9 +122,7 @@ function onItemCreated(): void {
 }
 
 function onProjectSaved(): void {
-  if (projectStore.currentProject) {
-    project.value = projectStore.currentProject;
-  }
+  // updateProject mutation already updates the query cache; no-op here.
 }
 
 async function onDelete(): Promise<void> {
@@ -138,10 +132,9 @@ async function onDelete(): Promise<void> {
   );
   if (!confirmed) return;
 
-  deleting.value = true;
   deleteError.value = null;
   try {
-    await projectStore.deleteProject(project.value._id);
+    await deleteProjectMutation.mutateAsync(project.value._id);
     await router.replace({ name: 'dashboard' });
   } catch (err) {
     if (axios.isAxiosError(err)) {
@@ -151,13 +144,12 @@ async function onDelete(): Promise<void> {
     } else {
       deleteError.value = 'Unexpected error. Please try again.';
     }
-  } finally {
-    deleting.value = false;
   }
 }
 
-onMounted(reload);
-watch(projectSlug, reload);
+watch(projectId, (id) => {
+  if (id) void reloadItems();
+}, { immediate: true });
 
 provide(projectContextKey, {
   project,

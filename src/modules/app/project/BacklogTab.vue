@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, toRefs, watch } from "vue";
 import { useRouter } from "vue-router";
 import axios from "axios";
-import { storeToRefs } from "pinia";
 import { VsxIcon } from "vue-iconsax";
 import { useWorkItemStore } from "@/store/workItem";
 import { useSprintStore } from "@/store/sprint";
@@ -39,8 +38,8 @@ const { project, canCreateTask, openCreateTask } = useProjectContext();
 
 const workItemStore = useWorkItemStore();
 const sprintStore = useSprintStore();
-const { items } = storeToRefs(workItemStore);
-const { sprints } = storeToRefs(sprintStore);
+const { items } = toRefs(workItemStore);
+const { sprints } = toRefs(sprintStore);
 
 const loading = ref(false);
 const error = ref<string | null>(null);

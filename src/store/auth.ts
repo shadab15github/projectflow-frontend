@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { LoginPayload, SignupPayload, User } from "@/types";
 import * as authService from "@/services/auth.service";
-import { useTenantStore } from "@/store/tenant";
+import { queryClient } from "@/lib/queryClient";
 
 const STORAGE_KEYS = {
   TOKEN: "auth_token",
@@ -50,7 +50,7 @@ export const useAuthStore = defineStore("auth", () => {
     token.value = null;
     removeFromStorage(STORAGE_KEYS.USER);
     removeFromStorage(STORAGE_KEYS.TOKEN);
-    useTenantStore().clearTenant();
+    queryClient.clear();
   }
 
   async function login(payload: LoginPayload): Promise<void> {

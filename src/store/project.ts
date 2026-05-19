@@ -1,5 +1,9 @@
-import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, toValue, type MaybeRefOrGetter } from 'vue';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/vue-query';
 import type {
   CreateProjectPayload,
   Project,
@@ -7,97 +11,82 @@ import type {
 } from '@/types';
 import * as projectService from '@/services/project.service';
 
-export const useProjectStore = defineStore('project', () => {
-  const projects = ref<Project[]>([]);
-  const currentProject = ref<Project | null>(null);
-  const loading = ref(false);
-  const error = ref<string | null>(null);
+export const projectKeys = {
+  all: ['projects'] as const,
+  lists: () => [...projectKeys.all, 'list'] as const,
+  list: () => [...projectKeys.lists()] as const,
+  details: () => [...projectKeys.all, 'detail'] as const,
+  detail: (idOrSlug: string) => [...projectKeys.details(), idOrSlug] as const,
+};
 
-  const recentProjects = computed<Project[]>(() =>
-    [...projects.value]
-      .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-      .slice(0, 5),
-  );
+export function useProjects() {
+  return useQuery<Project[]>({
+    queryKey: projectKeys.list(),
+    queryFn: projectService.listProjects,
+  });
+}
 
-  function findById(id: string): Project | undefined {
-    return projects.value.find((p) => p._id === id);
-  }
+export function useRecentProjects(limit = 5) {
+  return useQuery<Project[], Error, Project[]>({
+    queryKey: projectKeys.list(),
+    queryFn: projectService.listProjects,
+    select: (projects) =>
+      [...projects]
+        .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+        .slice(0, limit),
+  });
+}
 
-  function upsert(project: Project): void {
-    const index = projects.value.findIndex((p) => p._id === project._id);
-    if (index >= 0) projects.value[index] = project;
-    else projects.value.unshift(project);
-  }
+export function useProject(idOrSlug: MaybeRefOrGetter<string | undefined | null>) {
+  const key = computed(() => toValue(idOrSlug) ?? '');
+  return useQuery<Project>({
+    queryKey: computed(() => projectKeys.detail(key.value)),
+    queryFn: () => projectService.getProject(key.value),
+    enabled: computed(() => key.value.length > 0),
+  });
+}
 
-  async function fetchProjects(): Promise<void> {
-    loading.value = true;
-    error.value = null;
-    try {
-      projects.value = await projectService.listProjects();
-    } catch (err) {
-      error.value = 'Failed to load projects';
-      throw err;
-    } finally {
-      loading.value = false;
-    }
-  }
+export function useCreateProject() {
+  const qc = useQueryClient();
+  return useMutation<Project, Error, CreateProjectPayload>({
+    mutationFn: projectService.createProject,
+    onSuccess: (project) => {
+      qc.setQueryData<Project[]>(projectKeys.list(), (prev) =>
+        prev ? [project, ...prev.filter((p) => p._id !== project._id)] : [project],
+      );
+      qc.setQueryData(projectKeys.detail(project._id), project);
+      qc.setQueryData(projectKeys.detail(project.slug), project);
+    },
+  });
+}
 
-  async function fetchProject(idOrSlug: string): Promise<Project> {
-    loading.value = true;
-    error.value = null;
-    try {
-      const project = await projectService.getProject(idOrSlug);
-      currentProject.value = project;
-      upsert(project);
-      return project;
-    } catch (err) {
-      error.value = 'Failed to load project';
-      throw err;
-    } finally {
-      loading.value = false;
-    }
-  }
+export function useUpdateProject() {
+  const qc = useQueryClient();
+  return useMutation<
+    Project,
+    Error,
+    { id: string; payload: UpdateProjectPayload }
+  >({
+    mutationFn: ({ id, payload }) => projectService.updateProject(id, payload),
+    onSuccess: (project) => {
+      qc.setQueryData<Project[]>(projectKeys.list(), (prev) =>
+        prev?.map((p) => (p._id === project._id ? project : p)),
+      );
+      qc.setQueryData(projectKeys.detail(project._id), project);
+      qc.setQueryData(projectKeys.detail(project.slug), project);
+    },
+  });
+}
 
-  async function createProject(payload: CreateProjectPayload): Promise<Project> {
-    const project = await projectService.createProject(payload);
-    upsert(project);
-    return project;
-  }
-
-  async function updateProject(
-    id: string,
-    payload: UpdateProjectPayload,
-  ): Promise<Project> {
-    const project = await projectService.updateProject(id, payload);
-    upsert(project);
-    if (currentProject.value?._id === id) currentProject.value = project;
-    return project;
-  }
-
-  async function deleteProject(id: string): Promise<void> {
-    await projectService.deleteProject(id);
-    projects.value = projects.value.filter((p) => p._id !== id);
-    if (currentProject.value?._id === id) currentProject.value = null;
-  }
-
-  function clear(): void {
-    projects.value = [];
-    currentProject.value = null;
-    error.value = null;
-  }
-
-  return {
-    projects,
-    currentProject,
-    loading,
-    error,
-    recentProjects,
-    findById,
-    fetchProjects,
-    fetchProject,
-    createProject,
-    updateProject,
-    deleteProject,
-    clear,
-  };
-});
+export function useDeleteProject() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => projectService.deleteProject(id),
+    onSuccess: (_void, id) => {
+      qc.setQueryData<Project[]>(projectKeys.list(), (prev) =>
+        prev?.filter((p) => p._id !== id),
+      );
+      qc.removeQueries({ queryKey: projectKeys.detail(id) });
+    },
+  });
+}

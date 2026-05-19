@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import axios from "axios";
 import { VsxIcon } from "vue-iconsax";
-import { useUserStore } from "@/store/user";
+import { useUserLookup } from "@/store/user";
 import { useSprintStore } from "@/store/sprint";
 import { useComponentStore } from "@/store/component";
 import * as workItemService from "@/services/workItem.service";
@@ -47,7 +47,7 @@ const emit = defineEmits<{
   applied: [];
 }>();
 
-const userStore = useUserStore();
+const userStore = useUserLookup();
 const sprintStore = useSprintStore();
 const componentStore = useComponentStore();
 

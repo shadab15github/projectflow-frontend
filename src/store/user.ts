@@ -1,13 +1,23 @@
-import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, reactive } from 'vue';
+import { useQuery } from '@tanstack/vue-query';
 import type { User } from '@/types';
 import * as userService from '@/services/user.service';
 
-export const useUserStore = defineStore('user', () => {
-  const users = ref<User[]>([]);
-  const loading = ref(false);
-  const error = ref<string | null>(null);
-  const loaded = ref(false);
+export const userKeys = {
+  all: ['users'] as const,
+  list: () => [...userKeys.all, 'list'] as const,
+};
+
+export function useUsers() {
+  return useQuery<User[]>({
+    queryKey: userKeys.list(),
+    queryFn: userService.listUsers,
+  });
+}
+
+export function useUserLookup() {
+  const query = useUsers();
+  const users = computed<User[]>(() => query.data.value ?? []);
 
   const byId = computed<Map<string, User>>(() => {
     const map = new Map<string, User>();
@@ -21,8 +31,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function displayName(id: string | null | undefined): string {
-    const u = findById(id);
-    return u?.name ?? 'Unknown';
+    return findById(id)?.name ?? 'Unknown';
   }
 
   function initials(id: string | null | undefined): string {
@@ -34,37 +43,14 @@ export const useUserStore = defineStore('user', () => {
     return (first + last).toUpperCase() || '?';
   }
 
-  async function fetchUsers(force = false): Promise<void> {
-    if (loaded.value && !force) return;
-    loading.value = true;
-    error.value = null;
-    try {
-      users.value = await userService.listUsers();
-      loaded.value = true;
-    } catch (err) {
-      error.value = 'Failed to load users';
-      throw err;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  function clear(): void {
-    users.value = [];
-    loaded.value = false;
-    error.value = null;
-  }
-
-  return {
+  return reactive({
     users,
-    loading,
-    error,
-    loaded,
+    isPending: query.isPending,
+    isError: query.isError,
+    error: query.error,
     byId,
     findById,
     displayName,
     initials,
-    fetchUsers,
-    clear,
-  };
-});
+  });
+}

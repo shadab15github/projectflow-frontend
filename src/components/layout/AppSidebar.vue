@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { storeToRefs } from "pinia";
+import { computed, ref } from "vue";
+import { useQueryClient } from "@tanstack/vue-query";
 import { useAuthStore } from "@/store/auth";
-import { useTenantStore } from "@/store/tenant";
-import { useProjectStore } from "@/store/project";
+import { useCurrentTenant } from "@/store/tenant";
+import { useProjects } from "@/store/project";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,10 +17,14 @@ import { VsxIcon } from "vue-iconsax";
 import ChevronsUpDownIcon from "@/components/icons/ChevronsUpDownIcon.vue";
 
 const auth = useAuthStore();
-const tenantStore = useTenantStore();
-const projectStore = useProjectStore();
-const { tenant, loading: tenantLoading } = storeToRefs(tenantStore);
-const { projects } = storeToRefs(projectStore);
+const queryClient = useQueryClient();
+
+const tenantQuery = useCurrentTenant();
+const tenant = computed(() => tenantQuery.data.value ?? null);
+const tenantLoading = computed(() => tenantQuery.isPending.value);
+
+const projectsQuery = useProjects();
+const projects = computed(() => projectsQuery.data.value ?? []);
 
 const PROJECTS_EXPANDED_KEY = "projectflow:projects-expanded";
 
@@ -56,24 +60,9 @@ const tenantInitials = computed<string>(() =>
   initials(tenant.value?.name, "W"),
 );
 
-onMounted(async () => {
-  if (!auth.isAuthenticated) return;
-
-  const tasks: Promise<unknown>[] = [];
-  if (!tenant.value) tasks.push(tenantStore.fetchTenant());
-  if (projectStore.projects.length === 0)
-    tasks.push(projectStore.fetchProjects());
-
-  try {
-    await Promise.all(tasks);
-  } catch {
-    // api interceptor handles 401; other errors are non-fatal for layout
-  }
-});
-
 function logout(): void {
   auth.logout();
-  projectStore.clear();
+  queryClient.clear();
   window.location.href = "/login";
 }
 </script>

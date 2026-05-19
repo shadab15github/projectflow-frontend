@@ -6,7 +6,7 @@ import axios from "axios";
 import { useAuthStore } from "@/store/auth";
 import { useComponentStore } from "@/store/component";
 import { useSprintStore } from "@/store/sprint";
-import { useUserStore } from "@/store/user";
+import { useUserLookup } from "@/store/user";
 import * as workItemService from "@/services/workItem.service";
 import type {
   ProjectComponent,
@@ -37,7 +37,7 @@ const router = useRouter();
 const auth = useAuthStore();
 const componentStore = useComponentStore();
 const sprintStore = useSprintStore();
-const userStore = useUserStore();
+const userStore = useUserLookup();
 const { project, tasksError, canCreateTask, openCreateTask, reloadTasks } =
   useProjectContext();
 
@@ -403,8 +403,7 @@ watch(
   },
 );
 
-onMounted(async () => {
-  await userStore.fetchUsers().catch(() => undefined);
+onMounted(() => {
   if (project.value?._id) {
     void sprintStore.fetchSprints(project.value._id).catch(() => undefined);
   }
